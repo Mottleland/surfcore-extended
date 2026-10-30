@@ -350,20 +350,87 @@ export const SEARCH_ORDERS = ['totalrank', 'pubdate', 'click', 'dm'];
 export const SEARCH_PAGES = [1, 2, 3];
 
 /**
- * 每次运行换一套「排序 + 页码」，解决「每天搜到的都是同一页同一批」。
- * 同一个 seed（默认取当天）结果稳定；跨天自动换。
+ * 搜索计划：让**权重真正参与取样**（不只是参与排序）。
+ *
+ * 旧实现每个启用偏好固定 1 次查询 → 权重 2.5 的"人文历史"和权重 1 的"AIGC"
+ * 拿到的候选量完全一样；冷门方向一旦被去重清空，就只能把名额让给别人。
+ *
+ * 新实现：
+ *   1) 每个启用偏好保底 1 次（都有机会出现）；
+ *   2) 额外预算按权重分配（最大余数法），每个偏好最多 maxQueriesPerEntry 次；
+ *   3) 同一偏好内的多次查询取不同的 (order,page) 组合（按种子步进，跨天轮换）；
+ *   4) 额外预算 = round(启用数 × extraRatio)，默认 0.5。
  */
-export function searchPlan(entries, { seed = 0, orders = SEARCH_ORDERS, pages = SEARCH_PAGES } = {}) {
+export function searchPlan(entries, {
+  seed = 0,
+  orders = SEARCH_ORDERS,
+  pages = SEARCH_PAGES,
+  extraRatio = 0.5,
+  maxQueriesPerEntry = 3,
+} = {}) {
   const orderList = orders.length ? orders : SEARCH_ORDERS;
   const pageList = pages.length ? pages : SEARCH_PAGES;
+  const slots = orderList.length * pageList.length;
+  const enabled = (entries ?? []).filter((item) => item.weight > 0);
+  if (!enabled.length) return [];
+
+  const cap = Math.max(1, Math.min(Number(maxQueriesPerEntry) || 3, slots));
+  const sumW = enabled.reduce((sum, e) => sum + Math.max(0.01, Number(e.weight) || 0), 0);
+  // 总查询数：保底每个偏好 1 次，再按 extraRatio 追加；整体按权重分配（最大余数法）
+  const total = Math.max(enabled.length, Math.min(
+    enabled.length * cap,
+    Math.round(enabled.length * (1 + Math.max(0, Number(extraRatio) || 0))),
+  ));
+  const ideals = new Map();
+  const counts = new Map();
+  for (const e of enabled) {
+    const w = Math.max(0.01, Number(e.weight) || 0);
+    ideals.set(e.key, (total * w) / sumW);
+    counts.set(e.key, Math.max(1, Math.min(cap, Math.floor((total * w) / sumW))));
+  }
+  // 超出总预算时，从分配最多的偏好往下削（不低于 1）
+  let over = [...counts.values()].reduce((s, v) => s + v, 0) - total;
+  while (over > 0) {
+    const donor = [...enabled]
+      .filter((e) => (counts.get(e.key) ?? 1) > 1)
+      .sort((x, y) => (counts.get(y.key) ?? 1) - (counts.get(x.key) ?? 1))[0];
+    if (!donor) break;
+    counts.set(donor.key, counts.get(donor.key) - 1);
+    over -= 1;
+  }
+  // 还有余量则按「理想值 - 当前」的差额补，同额时按种子抖动，保证跨天轮换
+  let left = total - [...counts.values()].reduce((s, v) => s + v, 0);
+  const jitter = (key) => hashString(`${seed}|jitter|${key}`) / 4294967296;
+  while (left > 0) {
+    const pick = [...enabled]
+      .filter((e) => (counts.get(e.key) ?? 1) < cap)
+      .sort((x, y) => {
+        const dx = (ideals.get(x.key) ?? 0) - (counts.get(x.key) ?? 1);
+        const dy = (ideals.get(y.key) ?? 0) - (counts.get(y.key) ?? 1);
+        if (Math.abs(dy - dx) > 1e-9) return dy - dx;
+        return jitter(x.key) - jitter(y.key);
+      })[0];
+    if (!pick) break;
+    counts.set(pick.key, (counts.get(pick.key) ?? 1) + 1);
+    left -= 1;
+  }
+
   const plan = [];
-  for (const entry of (entries ?? []).filter((item) => item.weight > 0)) {
-    const hash = hashString(`${seed}|${entry.key}`);
-    plan.push({
-      ...entry,
-      order: orderList[hash % orderList.length],
-      page: pageList[Math.floor(hash / orderList.length) % pageList.length],
-    });
+  for (const entry of enabled) {
+    const n = counts.get(entry.key) ?? 1;
+    const base = hashString(`${seed}|${entry.key}`);
+    const seen = new Set();
+    for (let k = 0; k < n; k += 1) {
+      let slot = (base + k * 7) % slots;
+      let guard = 0;
+      while (seen.has(slot) && guard < slots) { slot = (slot + 1) % slots; guard += 1; }
+      seen.add(slot);
+      plan.push({
+        ...entry,
+        order: orderList[slot % orderList.length],
+        page: pageList[Math.floor(slot / orderList.length) % pageList.length],
+      });
+    }
   }
   return plan;
 }

@@ -124,7 +124,13 @@ const toNum = (value) => safeNumber(String(value ?? '').replace(/,/g, ''))
 
 const pool = []
 let searchRequests = 0
-const plan = searchPlan(enabled, { seed: SEED, pages: [1, 2, 3].slice(0, PAGES) })
+const plan = searchPlan(enabled, {
+  seed: SEED,
+  pages: [1, 2, 3].slice(0, PAGES),
+  // 权重参与取样：可在 bili.config.json 的 preferences 里调
+  extraRatio: Number(cfg.preferences?.searchExtraRatio ?? 0.5),
+  maxQueriesPerEntry: Number(cfg.preferences?.maxQueriesPerEntry ?? 3),
+})
 for (const item of plan) {
   try {
     const params = wbi({ search_type: 'video', keyword: item.label, order: item.order, page: item.page })
@@ -144,7 +150,7 @@ for (const item of plan) {
   } catch { /* 这个词没结果就跳过 */ }
   await new Promise((r) => setTimeout(r, 250))
 }
-console.error(`[搜索] ${plan.length} 个偏好 × 1 次（排序/页码按种子 ${SEED} 轮换，成功 ${searchRequests} 次）`)
+console.error(`[搜索] ${plan.length} 次（按权重分配取样，排序/页码按种子 ${SEED} 轮换，成功 ${searchRequests} 次）`)
 
 // ── #3 更多来源（2026-10-18 加：只搜关键词 = 只刷"搜索"，不是刷 B 站）──────
 //   --source search（默认）| popular（热门）| rank（排行）| following（关注）| all
