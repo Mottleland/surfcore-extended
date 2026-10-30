@@ -92,6 +92,8 @@ const SOURCE_PLATFORM = {
   'bili-dynamic': 'bili',
   'bili-comment': 'bili',
   'bili-diary': 'bili',
+  // 小红书读取：独立来源，不算 QQ 群聊发言（platform=shared）
+  'xhs-read': 'shared',
   manual: 'shared',
   system: 'shared',
 };
@@ -1431,8 +1433,15 @@ export function ingestInboxLines(card, lines, config = {}, now = Date.now()) {
         isFirst = true;
       }
     }
-    const source = isOwner ? 'qq-owner' : (isPrivate ? 'qq-private' : 'qq-group');
-    const speaker = isOwner ? '主人' : short(item.sender ?? item.senderName ?? '群友', 24) || '群友';
+    // 小红书读取写的是「专门记忆」：不进 QQ 群聊归属，避免被当成群友发言。
+    const isXhsRead = String(item.source ?? '') === 'xhs-read'
+      || (String(item.platform ?? '') === 'shared' && String(item.text ?? '').startsWith('【小红书】'));
+    const source = isXhsRead
+      ? 'xhs-read'
+      : (isOwner ? 'qq-owner' : (isPrivate ? 'qq-private' : 'qq-group'));
+    const speaker = isXhsRead
+      ? '小红书'
+      : (isOwner ? '主人' : short(item.sender ?? item.senderName ?? '群友', 24) || '群友');
     const result = addMemoryRecord(card, {
       source,
       sourceId: '',
