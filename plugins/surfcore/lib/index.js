@@ -1726,6 +1726,191 @@ export function apply(ctx) {
     }
   }
 
+  // 小红书只读服务（xiaohongshu-mcp）：并进「一键启动」。
+  // 它和 SnowLuma 的区别：本机用计划任务托管（脱离 DSH 进程存活），所以这里只负责
+  // 「没跑就把它拉起来」，端口已在就不重复启动。
+  const XHS_DEFAULT_PORT = 18060;
+  const XHS_DEFAULT_TASK = 'XhsMcpService';
+  async function launchXhsService() {
+    if (process.env.SURFCORE_SKIP_AUTOSTART === '1') {
+      return { ok: true, skipped: true, message: '测试环境：跳过打开小红书服务' };
+    }
+    const cfg = readQqConfig().config?.xhs ?? {};
+    if (cfg.allowLaunch === false) {
+      return { ok: true, skipped: true, message: '小红书服务启动开关关闭，已跳过' };
+    }
+    const port = Number(cfg.port) || XHS_DEFAULT_PORT;
+    if (await portOpen(port)) {
+      return { ok: true, already: true, message: `小红书服务已在运行（127.0.0.1:${port}）` };
+    }
+    const taskName = String(cfg.taskName || XHS_DEFAULT_TASK);
+    try {
+      const run = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', 'schtasks', '/Run', '/TN', taskName], {
+        detached: true, stdio: 'ignore', windowsHide: true,
+      });
+      run.unref();
+    } catch {
+      // 计划任务不存在时再退回直接执行启动脚本
+      const script = String(cfg.launchScript || '');
+      if (!script || !fs.existsSync(script) || /["\r\n]/.test(script)) {
+        return { ok: false, error: '小红书服务没在跑，且找不到启动脚本/计划任务' };
+      }
+      spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', 'start', '""', `"${script}"`], {
+        cwd: path.dirname(script), detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true,
+      }).unref();
+    }
+    // 等端口起来（最多 25 秒：它要拉起内置浏览器，比 SnowLuma 慢）
+    const until = Date.now() + 25_000;
+    while (Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (await portOpen(port)) {
+        return { ok: true, started: true, port, message: `小红书服务已启动（127.0.0.1:${port}）` };
+      }
+    }
+    return { ok: true, started: true, pending: true, port, message: `已触发小红书服务启动，端口 ${port} 稍后可用` };
+  }
+
+  // 启动弹窗里的一行小红书状态（端口探活，不启动进程）
+  async function xhsStartupLine() {
+    const cfg = readQqConfig().config?.xhs ?? {};
+    const port = Number(cfg.port) || XHS_DEFAULT_PORT;
+    if (await portOpen(port)) return `小红书：已就绪（127.0.0.1:${port}）`;
+    if (cfg.allowLaunch === false) return '小红书：启动开关关闭（未启动）';
+    return '小红书：未就绪（到「小红书」页点「启动服务」或扫码登录）';
+  }
+
+  // 小红书子账本：把「由 xhsLink 唤醒引出的那些回合」的 token 单独汇总。
+  // 只读 token-usage.jsonl（桥接写的逐轮账本），不重复计费；金额口径仍归 QQ。
+  function xhsUsageToday() {
+    const stateRoot = path.resolve(PLUGIN_ROOT, '..', '..', 'state');
+    const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+    let marks = [];
+    try { marks = JSON.parse(fs.readFileSync(path.join(stateRoot, 'xhs-marks.json'), 'utf8')) ?? []; } catch { return { tokens: 0, turns: 0 }; }
+    const byKey = new Map();
+    for (const m of Array.isArray(marks) ? marks : []) {
+      const k = String(m?.key || '');
+      const at = Number(m?.at || 0);
+      if (!k || at < day0.getTime()) continue;
+      const arr = byKey.get(k) ?? [];
+      arr.push(at);
+      byKey.set(k, arr);
+    }
+    if (!byKey.size) return { tokens: 0, turns: 0 };
+    let tokens = 0;
+    let turns = 0;
+    try {
+      for (const line of fs.readFileSync(path.join(stateRoot, 'token-usage.jsonl'), 'utf8').split('\n')) {
+        if (!line) continue;
+        let j; try { j = JSON.parse(line); } catch { continue; }
+        if (j?.k !== 'turn') continue;
+        const t = Number(j.t || 0);
+        if (t < day0.getTime()) continue;
+        const ts = byKey.get(String(j.key || ''));
+        if (!ts) continue;
+        if (!ts.some((at) => t >= at - 60_000 && t <= at + 20 * 60_000)) continue;
+        const b = j.b ?? {};
+        tokens += ['cacheMiss', 'cacheHit', 'cacheWrite', 'output', 'reasoning']
+          .reduce((acc, k) => acc + (Number(b[k]) || 0), 0);
+        turns += 1;
+      }
+    } catch { /* 没有账本文件就是 0 */ }
+    return { tokens, turns };
+  }
+
+  // ── 小红书设置页接口（/dsh-surfcore/api/xhs）────────────────────────────
+  // status：探活 + 登录态；start：拉起服务；login：打开扫码登录窗口。
+  async function handleXhsApi(req, res) {
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { ok: false, error: 'body 不是合法 JSON' }); return; }
+    const action = String(body?.action || 'status');
+    const cfg = readQqConfig().config?.xhs ?? {};
+    const baseUrl = String(cfg.baseUrl || 'http://127.0.0.1:18060').replace(/\/+$/, '');
+    const token = String(cfg.authToken || '');
+    const port = Number(cfg.port) || XHS_DEFAULT_PORT;
+
+    const upstream = async (apiPath) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), Math.min(15000, Number(cfg.timeoutMs) || 20000));
+      try {
+        const r = await fetch(`${baseUrl}${apiPath}`, {
+          signal: ctrl.signal,
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        });
+        const text = await r.text();
+        let payload = null;
+        try { payload = text ? JSON.parse(text) : null; } catch { /* 非 JSON */ }
+        return { ok: r.ok, status: r.status, payload };
+      } catch (error) {
+        return { ok: false, status: 0, error: error?.name === 'AbortError' ? '请求超时' : String(error?.message ?? error) };
+      } finally { clearTimeout(timer); }
+    };
+
+    if (action === 'status') {
+      const health = await upstream('/health');
+      const loginResp = health.ok ? await upstream('/api/v1/login/status') : null;
+      const loginData = loginResp?.payload?.data ?? {};
+      json(res, 200, {
+        ok: health.ok,
+        service: {
+          baseUrl,
+          port,
+          reachable: health.ok,
+          status: health.payload?.data?.status ?? (health.ok ? 'unknown' : 'down'),
+          error: health.ok ? undefined : (health.error || `HTTP ${health.status}`),
+        },
+        login: {
+          loggedIn: Boolean(loginData.is_logged_in),
+          nickname: loginData.username ?? null,
+          userId: loginData.user_id ?? null,
+        },
+        config: {
+          allowLaunch: cfg.allowLaunch !== false,
+          hasToken: Boolean(token),
+          timeoutMs: Number(cfg.timeoutMs) || 20000,
+          maxComments: Number.isFinite(Number(cfg.maxComments)) ? Number(cfg.maxComments) : 6,
+          commentOrder: String(cfg.commentOrder || 'hot'),
+          maxPerHour: Number.isFinite(Number(cfg.maxPerHour)) ? Number(cfg.maxPerHour) : 3,
+          maxReadsPerDay: Number.isFinite(Number(cfg.maxReadsPerDay)) ? Number(cfg.maxReadsPerDay) : 0,
+          taskName: String(cfg.taskName || XHS_DEFAULT_TASK),
+        },
+        // 今日读取配额（适配层维护的 state/xhs-quota.json）
+        quota: (() => {
+          const qPath = path.resolve(PLUGIN_ROOT, '..', '..', 'state', 'xhs-quota.json');
+          try {
+            const q = JSON.parse(fs.readFileSync(qPath, 'utf8'));
+            const d = new Date();
+            const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const used = q?.day === today ? Number(q.count) || 0 : 0;
+            const limit = Number(cfg.maxReadsPerDay) || 0;
+            return { day: today, used, limit, remaining: limit > 0 ? Math.max(0, limit - used) : null };
+          } catch {
+            return { used: 0, limit: Number(cfg.maxReadsPerDay) || 0, remaining: null };
+          }
+        })(),
+        // 子账本：这些是"由小红书读取引出的回合"的 token（已含在 QQ 里，只用于展示）
+        usage: xhsUsageToday(),
+        readonly: true, // 适配层只注册两个只读工具，写能力从未进入模型工具面
+      });
+      return;
+    }
+    if (action === 'start') { json(res, 200, await launchXhsService()); return; }
+    if (action === 'login') {
+      const loginApp = String(cfg.loginScript || path.join(path.dirname(String(cfg.launchScript || 'C:/Users/CMII/xhs-mcp/run-xhs-mcp.bat')), 'xiaohongshu-login-windows-amd64.exe'));
+      if (!fs.existsSync(loginApp)) {
+        json(res, 404, { ok: false, error: `找不到登录程序：${loginApp}（在设置里填「登录程序路径」）` });
+        return;
+      }
+      try {
+        spawn(loginApp, [], { cwd: path.dirname(loginApp), detached: true, stdio: 'ignore', windowsHide: false }).unref();
+        json(res, 200, { ok: true, message: '已打开登录窗口：用小红书 App 扫码，成功后登录态会自动保存' });
+      } catch (error) {
+        json(res, 500, { ok: false, error: `打开登录窗口失败：${error?.message ?? error}` });
+      }
+      return;
+    }
+    json(res, 400, { ok: false, error: `未知 action：${action}` });
+  }
+
   // ── 启动完成弹窗 ────────────────────────────────────────────────────────
   // 用 wscript 的 WScript.Shell.Popup：独立 GUI 窗口，不弹控制台，不依赖 DSH。
   function showStartupPopup(title, text, seconds = 30) {
@@ -1773,7 +1958,7 @@ export function apply(ctx) {
         const allReady = (bridge, schedulerRunning) => Boolean(
           (!qq || qqReady(bridge)) && (!bili || schedulerRunning),
         );
-        const successLines = (bridge) => {
+        const successLines = (bridge, xhsLine = '') => {
           const snow = bridge?.snowluma ?? {};
           return [
             '全部启动成功 ✓',
@@ -1782,6 +1967,7 @@ export function apply(ctx) {
               `QQ 桥接：运行中（端口 ${bridge.port ?? 3100}，DSH 已连接）`,
               `SnowLuma：已连接，QQ ${snow.accountOnline ? '在线' : '离线'}`,
             ] : ['QQ：启动开关关闭（未启动）']),
+            ...(qq && xhsLine ? [xhsLine] : []),
             ...(bili ? ['B站生物钟：运行中'] : ['B站：启动开关关闭（未启动）']),
           ];
         };
@@ -1795,7 +1981,7 @@ export function apply(ctx) {
           if (allReady(bridge, schedulerRunning)) {
             const snow = bridge?.snowluma ?? {};
             pluginLog(`启动检查通过：qq=${qq} bili=${bili} DSH=${bridge.dshBaseUrl ?? '?'} SnowLuma=${snow.connected} 账号=${snow.accountOnline}`);
-            showStartupPopup('SurfCore 启动完成', successLines(bridge).join('\n'), 30);
+            showStartupPopup('SurfCore 启动完成', successLines(bridge, await xhsStartupLine()).join('\n'), 30);
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -1809,7 +1995,7 @@ export function apply(ctx) {
           ]);
           if (bridge) last = { bridge, schedulerRunning };
           if (bridge && allReady(bridge, schedulerRunning)) {
-            showStartupPopup('SurfCore 启动完成', successLines(bridge).join('\n'), 30);
+            showStartupPopup('SurfCore 启动完成', successLines(bridge, await xhsStartupLine()).join('\n'), 30);
             return;
           }
         } catch {}
@@ -1831,6 +2017,7 @@ export function apply(ctx) {
             ...(snowDiag.hint ? [`   → ${snowDiag.hint}`] : []),
           ] : ['QQ：启动开关关闭（未启动）']),
           ...(bili ? [`B站生物钟：${last?.schedulerRunning ? '运行中' : '未启动'}`] : ['B站：启动开关关闭（未启动）']),
+          ...(qq ? [await xhsStartupLine()] : []),
         ].join('\n'), 40);
       } catch (error) {
         pluginLog('启动完成检查失败：', error?.message ?? error);
@@ -2171,11 +2358,14 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output 
         ? startSchedulerNow()
         : { ...idleSchedulerStatus('disabled'), message: 'B站 启动开关关闭，已跳过生物钟' };
       const snowluma = starts.qq ? await launchSnowLuma() : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过 SnowLuma' };
+      // 小红书只读服务跟随 QQ 一起起：群里发链接要靠它读笔记。
+      const xhs = starts.qq ? await launchXhsService() : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过小红书服务' };
       const coreOk = (!starts.qq || bridge?.ok !== false) && (!starts.bili || schedulerState.running);
       const message = [
         bridge?.message,
         starts.bili ? (schedulerState.running ? 'B站生物钟在跑' : 'B站生物钟未启动') : '',
         snowluma?.message || snowluma?.error,
+        xhs?.message || xhs?.error,
         starts.qq || starts.bili ? '启动完成后会弹窗告诉你结果' : 'QQ 和 B站 的启动开关都关着，没有需要启动的平台',
       ].filter(Boolean).join('；');
       json(res, 200, {
@@ -2185,6 +2375,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output 
         bridge,
         scheduler: schedulerState,
         snowluma,
+        xhs,
         platformStart: starts,
       });
       if (starts.qq || starts.bili) void watchStartupCompletion(starts);
@@ -2652,6 +2843,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output 
       return;
     }
     if (pathname === `${API_PREFIX}/fish-guard/qq`) { handleQqFishGuard(res); return; }
+    if (pathname === `${API_PREFIX}/xhs`) { await handleXhsApi(req, res); return; }
     if (pathname === `${API_PREFIX}/memory-card/full`) { await handleMemoryCardFull(req, res, url); return; }
     if (pathname === `${API_PREFIX}/memory-card`) { await handleMemoryCard(req, res); return; }
     if (pathname === `${API_PREFIX}/align`) { await handleAlign(req, res); return; }
