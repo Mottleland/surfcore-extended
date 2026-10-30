@@ -346,6 +346,19 @@ export function hashString(value) {
   return hash >>> 0;
 }
 
+/**
+ * 解析"本轮取几条候选"：--n 显式优先；否则用配置的 night.maxVideos；
+ * 都没有才回落到 fallback(6)。上界 30，与 feed 的 --n 限制一致。
+ */
+export function resolveCandidateCount({ n, maxVideos, fallback = 6, hardMax = 30 } = {}) {
+  const explicit = Number(n);
+  const configured = Number(maxVideos);
+  const pick = Number.isFinite(explicit) && explicit > 0
+    ? explicit
+    : (Number.isFinite(configured) && configured > 0 ? configured : fallback);
+  return Math.max(1, Math.min(hardMax, Math.floor(pick)));
+}
+
 export const SEARCH_ORDERS = ['totalrank', 'pubdate', 'click', 'dm'];
 export const SEARCH_PAGES = [1, 2, 3];
 

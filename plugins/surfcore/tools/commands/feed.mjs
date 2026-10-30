@@ -25,7 +25,7 @@ import { config } from '../lib/config.mjs'
 import { readWatchHistory } from '../lib/watch-history.mjs'
 import {
   bvSetFromTexts, candidateScore, filterRecentlyPicked, normalizePreferences,
-  preferenceHits, prunePickedMap, safeNumber, searchPlan, selectDiverse,
+  preferenceHits, prunePickedMap, resolveCandidateCount, safeNumber, searchPlan, selectDiverse,
 } from '../lib/feed-core.mjs'
 
 const argv = process.argv.slice(2)
@@ -38,8 +38,6 @@ for (let i = 0; i < argv.length; i += 1) {
   else { opt[key] = next; i += 1 }
 }
 
-const N = Math.max(1, Math.min(30, Number(opt.n ?? 6) || 6))
-const PER = Math.max(1, Math.min(N, Number(opt.per ?? Math.max(2, Math.ceil(N / 2))) || 2))
 const PAGES = Math.max(1, Math.min(3, Number(opt.pages ?? 3) || 3))
 const RECENT_DAYS = Math.max(0, Math.min(30, Number(opt['recent-days'] ?? 3) || 0))
 const SOURCE = String(opt.source ?? 'all')
@@ -52,6 +50,9 @@ const feedPicks = biliState('feed-picks.json')
 
 // ── ① 偏好：全量参与，按权重（不再 slice(0,6)）────────────────────────────
 const cfg = config()
+// 候选条数：--n 显式优先，否则用 bili.config.json 的 night.maxVideos（设置页「单次初筛视频数」）
+const N = resolveCandidateCount({ n: opt.n, maxVideos: cfg.night?.maxVideos })
+const PER = Math.max(1, Math.min(N, Number(opt.per ?? Math.max(2, Math.ceil(N / 2))) || 2))
 const { entries, enabled, disabled } = normalizePreferences({
   like: cfg.preferences?.like ?? [],
   keywords: cfg.preferences?.keywords ?? [],

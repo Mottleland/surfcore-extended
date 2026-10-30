@@ -59,3 +59,24 @@ test('权重为 0 的偏好不参与取样', () => {
   const plan = searchPlan(list, { seed: '2026-10-30' });
   assert.ok(plan.every((p) => p.label !== '带货'));
 });
+
+// ---- resolveCandidateCount：night.maxVideos 参与取样 ----
+import { resolveCandidateCount } from '../plugins/surfcore/tools/lib/feed-core.mjs';
+
+test('显式 --n 优先于配置', () => {
+  assert.equal(resolveCandidateCount({ n: 5, maxVideos: 20 }), 5);
+});
+
+test('没有 --n 时用 night.maxVideos', () => {
+  assert.equal(resolveCandidateCount({ n: undefined, maxVideos: 20 }), 20);
+});
+
+test('两者都没有时回落 6', () => {
+  assert.equal(resolveCandidateCount({}), 6);
+});
+
+test('超界会被夹到 30，非法值回落 6', () => {
+  assert.equal(resolveCandidateCount({ maxVideos: 99 }), 30);
+  assert.equal(resolveCandidateCount({ maxVideos: 0 }), 6);
+  assert.equal(resolveCandidateCount({ maxVideos: 'abc' }), 6);
+});
