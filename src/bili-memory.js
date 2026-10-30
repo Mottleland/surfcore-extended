@@ -257,15 +257,15 @@ export function createBiliMemory({ stateDir, home = os.homedir(), log = () => {}
   async function collect({ force = false } = {}) {
     const config = cfg();
     const diaryRaw = (() => {
-      try { return fs.readFileSync(path.join(paths.bili, 'whale-diary.md'), 'utf8'); } catch { return ''; }
+      try { return fs.readFileSync(path.join(stateDir, 'whale-diary.md'), 'utf8'); } catch { return ''; }
     })();
     const fallbackDate = (() => {
-      try { return fs.statSync(path.join(paths.bili, 'whale-diary.md')).mtime.toLocaleDateString('sv-SE'); } catch { return new Date().toLocaleDateString('sv-SE'); }
+      try { return fs.statSync(path.join(stateDir, 'whale-diary.md')).mtime.toLocaleDateString('sv-SE'); } catch { return new Date().toLocaleDateString('sv-SE'); }
     })();
 
-    const scoresRaw = readJson(path.join(paths.bili, 'scores.json'), {}) ?? {};
-    const favoritesRaw = readJson(path.join(paths.bili, 'favorites.json'), {}) ?? {};
-    const quotaRaw = readJson(path.join(paths.bili, 'quota.json'), {}) ?? {};
+    const scoresRaw = readJson(path.join(stateDir, 'scores.json'), {}) ?? {};
+    const favoritesRaw = readJson(path.join(stateDir, 'favorites.json'), {}) ?? {};
+    const quotaRaw = readJson(path.join(stateDir, 'quota.json'), {}) ?? {};
 
     const scoreItems = [];
     for (const [date, arr] of Object.entries(scoresRaw)) {
