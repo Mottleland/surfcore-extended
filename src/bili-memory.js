@@ -582,7 +582,7 @@ export function createBiliMemory({ stateDir, home = os.homedir(), log = () => {}
       lines.push(`- ${e.date}【${label}】${short(e.title, 46)}${body ? `：${body}` : ''}`);
     }
     lines.push('');
-    lines.push('我的习惯：看到认真做但没人看的小 UP 会去留一句；评论常用「mer」收尾；喜欢短、可爱、荒诞、有梗的东西，不爱长篇干货和带货。');
+    lines.push('我的习惯：喜欢有内容、有价值的长篇干货，不喜欢广告和带货；评论习惯用颜文字结尾。');
     lines.push('边界：B 站私信里的内容不在我的记忆里，我也不会编；群友问起就按记得的公开经历回答。');
     let brief = lines.join('\n');
     if (brief.length > 2700) brief = `${brief.slice(0, 2700)}…`;
