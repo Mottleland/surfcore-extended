@@ -12489,9 +12489,44 @@ async function main() {
     return text;
   }
 
+  // 小红书链接识别（独立函数）。必须在 anyMessage / atMention 之前调用：
+  // 活跃模式（anyMessage）会最先 return，排在后面的触发器永远轮不到。
+  function detectXhsLinkV2(key, st, plainContent) {
+    if (cfg.xhs?.enabled === false) return null;
+    const tr = st.wakeConfig?.triggers ?? {};
+    if (tr.xhsLink === false) return null;
+    const urls = extractXhsUrls(plainContent);
+    if (!urls.length) return null;
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const seen = Array.isArray(st.xhsSeen) ? st.xhsSeen.filter((s) => s && now - Number(s.at || 0) < day) : [];
+    // 去重键用「笔记 ID」优先：同一篇笔记换 xsec_token / 来源参数重发，URL 不同但其实是同一篇。
+    const keyOf = (u) => {
+      const m = /\/(?:explore|discovery\/item|note)\/([0-9a-f]{24})/i.exec(u);
+      return m ? `id:${m[1]}` : `url:${u}`;
+    };
+    const fresh = urls.filter((u) => {
+      const k = keyOf(u);
+      return !seen.some((s) => (s.key ? s.key === k : s.url === u));
+    });
+    // 每群每小时触发上限（设置页 xhs.maxPerHour，0 = 不限）
+    const hourlyCap = Number(cfg.xhs?.maxPerHour ?? 3);
+    const hourCount = seen.filter((s) => now - Number(s.at || 0) < 60 * 60 * 1000).length;
+    if (!fresh.length || (hourlyCap > 0 && hourCount >= hourlyCap)) return null;
+    st.xhsSeen = [...seen, ...fresh.map((u) => ({ url: u, key: keyOf(u), at: now }))].slice(-20);
+    st.xhsPendingUrl = fresh[0];
+    st.xhsPendingAt = now;
+    return 'xhsLink';
+  }
+
   function evaluateWakeTriggerV2(key, st, event, kind, textContent, plainContent, quoteTargetIsSelf) {
     if (kind === 'private') return 'private';
     const tr = st.wakeConfig?.triggers ?? {};
+    // ⚠️ 小红书链接必须**最先**判定：anyMessage（活跃模式）一旦命中就会 return，
+    // 排在它后面的 xhsLink 永远轮不到 —— 这正是"群里发卡片却读不出来"的根因：
+    // 群处于 anyMessage 模式时，xhsPendingUrl 从未被写入，专用提示词也就从未注入。
+    const xhsReason = detectXhsLinkV2(key, st, plainContent);
+    if (xhsReason) return xhsReason;
     if (tr.anyMessage) return 'anyMessage';
     if (tr.atMention) {
       const atSelf = Array.isArray(event?.message) && event.message.some((seg) => seg?.type === 'at' && String(seg.data?.qq) === String(event?.self_id ?? ''));
@@ -12513,36 +12548,6 @@ async function main() {
           if (new RegExp(`\\b${kwStr}\\b`, 'i').test(lower)) return `keyword:${kw}`;
         } else if (lower.includes(kwStr)) {
           return `keyword:${kw}`;
-        }
-      }
-    }
-    // 小红书分享链接：群友发来笔记链接时，单独给一个"先读再评"的唤醒原因。
-    // 去重：同一条链接 24 小时内只主动触发一次（重复刷屏不再烧回合）。
-    // xhs.enabled=false 时整条链路关闭（新用户没装服务时可以一键关掉）。
-    if (tr.xhsLink !== false && cfg.xhs?.enabled !== false) {
-      const urls = extractXhsUrls(plainContent);
-      if (urls.length) {
-        const now = Date.now();
-        const day = 24 * 60 * 60 * 1000;
-        const seen = Array.isArray(st.xhsSeen) ? st.xhsSeen.filter((s) => s && now - Number(s.at || 0) < day) : [];
-        // 去重键用「笔记 ID」优先：同一个笔记换个 xsec_token / xsec_source 重新分享，
-        // URL 字符串不同但其实是同一篇，用 URL 比会重复回复。
-        const keyOf = (u) => {
-          const m = /\/(?:explore|discovery\/item|note)\/([0-9a-f]{24})/i.exec(u);
-          return m ? `id:${m[1]}` : `url:${u}`;
-        };
-        const fresh = urls.filter((u) => {
-          const k = keyOf(u);
-          return !seen.some((s) => (s.key ? s.key === k : s.url === u));
-        });
-        // 每群每小时触发上限（设置页 xhs.maxPerHour，0 = 不限）：防止一群人连发链接烧光额度
-        const hourlyCap = Number(cfg.xhs?.maxPerHour ?? 3);
-        const hourCount = seen.filter((s) => now - Number(s.at || 0) < 60 * 60 * 1000).length;
-        if (fresh.length && !(hourlyCap > 0 && hourCount >= hourlyCap)) {
-          st.xhsSeen = [...seen, ...fresh.map((u) => ({ url: u, key: keyOf(u), at: now }))].slice(-20);
-          st.xhsPendingUrl = fresh[0];
-          st.xhsPendingAt = now; // 记账用：判断"这次唤醒是不是为小红书花的钱"
-          return 'xhsLink';
         }
       }
     }
@@ -13037,6 +13042,14 @@ async function main() {
       log(`[小红书] 子账本打点 ${key}（reason=${reason}${xhsPendingFresh ? '，待读链接有效' : ''}）`);
     }
     saveSocialV2State();
+    // 上线补历史：桥接重启期间进来的链接不会走 handleIncoming 的触发器，
+    // 这里从补回来的未读里补一次识别，避免"重启一下就永远读不到那条链接"。
+    if (String(reason).split(':')[0] === 'history' && !st.xhsPendingUrl) {
+      for (const m of st.unread || []) {
+        const t = String(m?.plain ?? m?.text ?? '');
+        if (t && detectXhsLinkV2(key, st, t)) break;
+      }
+    }
     const promptText = buildWakePromptV2(key, reason);
     log(`[reserved2] 唤醒 ${key}（${reason}）`);
     const rollbackWakeTime = () => {

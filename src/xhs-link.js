@@ -19,6 +19,9 @@ export const ALLOWED_HOSTS = new Set([
   'www.xiaohongshu.com',
   'xhslink.com',
   'www.xhslink.com',
+  // 小红书 App 新版分享会走 xhslink.cn（带 /o/ 或 /m/ 路径），2026-10 实测存在
+  'xhslink.cn',
+  'www.xhslink.cn',
   'xhs.cn',
   'www.xhs.cn',
 ]);
@@ -74,7 +77,9 @@ export function parseNoteFromUrl(raw) {
     return { ok: false, code: 'host_not_allowed', reason: `不是小红书官方域名：${u.hostname}` };
   }
   const host = u.hostname.toLowerCase();
-  const isShort = host === 'xhslink.com' || host === 'www.xhslink.com' || host === 'xhs.cn' || host === 'www.xhs.cn';
+  const isShort = host === 'xhslink.com' || host === 'www.xhslink.com'
+    || host === 'xhslink.cn' || host === 'www.xhslink.cn'
+    || host === 'xhs.cn' || host === 'www.xhs.cn';
   if (isShort) {
     return { ok: true, kind: 'short', url: u.href, shortUrl: u.href };
   }
