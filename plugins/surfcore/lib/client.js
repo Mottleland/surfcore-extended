@@ -819,6 +819,20 @@ F("sessionCwd", "会话工作目录", "留空用 surfcore 根目录", "text", { 
         F("snowluma.launchScript", "启动脚本（可选）", "留空自动找 安装目录\\app\\launcher.bat", "text", { wide: true }),
         F("snowluma.homeDir", "SnowLuma home（app 目录）", "内含 config 的那个目录，一般是 安装目录 下的 app；填错会导致「检测不到」", "text", { browse: "dir" }),
       ]},
+      { group: "小红书（只读）", note: "群友发小红书分享链接时，AI 先读笔记正文/图片/评论再评论；只读——发布/评论/点赞/收藏/删 Cookie 一律不开放（适配层根本没注册这些工具）", fields: [
+        F("xhs.baseUrl", "服务地址", "默认 http://127.0.0.1:18060（只监听本机）"),
+        F("xhs.authToken", "网关鉴权 token", "与服务端 AUTH_TOKEN 一致；留空则用环境变量", "password"),
+        F("xhs.port", "服务端口", "默认 18060", "number", { min: 1024, max: 65535 }),
+        F("xhs.allowLaunch", "允许「一键启动」拉起服务", "开启后一键启动会顺带启动小红书服务；关掉则只检测不启动", "switch"),
+        F("xhs.timeoutMs", "读取超时（ms）", "默认 20000；笔记详情含浏览器渲染，别设太小", "number", { min: 3000 }),
+        F("xhs.maxComments", "附带评论条数", "默认 6；0 表示不带评论", "number", { min: 0, max: 20 }),
+        F("xhs.commentOrder", "评论排序", "hot = 按点赞取最热前 N 条；order = 上游原始顺序", "select", { options: [["hot", "最热优先"], ["order", "原始顺序"]] }),
+        F("xhs.maxReadsPerDay", "每天最多读取", "默认 0 = 不限；这是小红书自己的配额，另外还受总 token 额度约束", "number", { min: 0 }),
+        F("xhs.maxPerHour", "每群每小时最多触发", "默认 3；0 表示不限。防同一群人连发链接把额度烧光", "number", { min: 0 }),
+        F("xhs.taskName", "托管计划任务名", "默认 XhsMcpService；服务由计划任务托管，能活过 DSH 重启", "text"),
+        F("xhs.launchScript", "启动脚本", "计划任务不存在时的兜底脚本", "text", { wide: true }),
+        F("xhs.loginScript", "登录程序路径", "默认同目录下的 xiaohongshu-login-windows-amd64.exe", "text", { wide: true }),
+      ]},
       { group: "控制台", note: "桥接本地控制台", fields: [
         F("consolePort", "控制台端口", "默认 3100", "number", { min: 1024, max: 65535 }),
         F("consoleToken", "控制台令牌", "留空 = 自动生成并保存到 state/console-token", "password"),
@@ -1674,6 +1688,33 @@ F("toolsPath", "bili.mjs 路径", "留空 = 用合体插件自带的 tools/", "t
               h("div", { className: "qbw-hint" }, "「手动选择」只是告诉插件你装好的 SnowLuma 在哪：不下载、不安装、不移动、不删除任何文件。"),
               h("div", { className: "qbw-hint" }, "SurfCore 只负责检测、打开和查看连接状态；SnowLuma2 本体按 EULA 不随插件分发，安装与扫码仍需你完成。")),
             h("div", { className: "qbw-card" },
+              h("h4", null, "小红书服务（只读）"),
+              h("p", null, "群友发小红书链接时，AI 先读笔记再评论。服务是本机的一个 HTTP 进程，由计划任务托管，能活过 DSH 重启。"),
+              h("div", { className: "qbw-actions" },
+                h(Btn, { kind: "qbw-btn2", disabled: !!busy, onClick: async () => {
+                  setBusy("xhs-status");
+                  try {
+                    const r = await api("/xhs", { method: "POST", body: { action: "status" } });
+                    if (!r.ok) toast(`✗ 服务不可用：${r.service?.error || "未知错误"}`);
+                    else toast(r.login?.loggedIn ? `✓ 服务在线 · 已登录 ${r.login.nickname || ""}` : "⚠ 服务在线，但小红书未登录：点「扫码登录」");
+                  } catch (e) { toast(`✗ ${e.message}`); } finally { setBusy(""); }
+                } }, "检查状态"),
+                h(Btn, { kind: "qbw-btn2", disabled: !!busy, onClick: async () => {
+                  setBusy("xhs-start");
+                  try {
+                    const r = await api("/xhs", { method: "POST", body: { action: "start" } });
+                    toast(r.ok ? `✓ ${r.message || "已启动"}` : `✗ ${r.error || "启动失败"}`);
+                  } catch (e) { toast(`✗ ${e.message}`); } finally { setBusy(""); }
+                } }, "启动服务"),
+                h(Btn, { disabled: !!busy, onClick: async () => {
+                  setBusy("xhs-login");
+                  try {
+                    const r = await api("/xhs", { method: "POST", body: { action: "login" } });
+                    toast(r.ok ? `✓ ${r.message}` : `✗ ${r.error || "打不开登录窗口"}`);
+                  } catch (e) { toast(`✗ ${e.message}`); } finally { setBusy(""); }
+                } }, "扫码登录")),
+              h("div", { className: "qbw-hint" }, "扫码登录会弹出一个浏览器窗口，用小红书 App 扫二维码即可；登录态存在本机浏览器配置里，服务重启后依然有效。写操作（发布/评论/点赞/收藏/删 Cookie）本插件从不注册，模型看不到也调不到。")),
+            h("div", { className: "qbw-card" },
               h("h4", null, "扩展与平台"),
               h("div", { className: "qbw-kv" }, h("span", null, "已启用扩展"), h("span", null, `${(overview?.extensions ?? []).filter((x) => x.enabled).length} / ${(overview?.extensions ?? []).length}`)),
               h("div", { className: "qbw-kv" }, h("span", null, "平台"), h("span", null, (overview?.platforms ?? []).map((x) => `${x.name}${x.status === "planned" ? "(预留)" : ""}`).join(" · "))),
@@ -2180,6 +2221,58 @@ F("toolsPath", "bili.mjs 路径", "留空 = 用合体插件自带的 tools/", "t
     }
 
     // ── QQ 标签页 ───────────────────────────────────────────────────────────
+    function XhsTab({ cfg, set, busy, setBusy, toast }) {
+      const [status, setStatus] = useState(null);
+      const [note, setNote] = useState("");
+      const [working, setWorking] = useState("");
+      // 复用 QQ 页里「小红书（只读）」那组字段定义，避免两处漂移
+      const groups = QQ_FIELDS.filter((g) => String(g.group || "").startsWith("小红书"));
+      const act = async (action) => {
+        setWorking(action);
+        setNote("请求中…");
+        try {
+          const r = await api("/xhs", { method: "POST", body: { action } });
+          if (action === "status") {
+            setStatus(r);
+            setNote(r.ok
+              ? (r.login?.loggedIn ? `✓ 服务在线，已登录 ${r.login.nickname || ""}` : "⚠ 服务在线，但未登录")
+              : `✗ 服务不可用：${r.service?.error || r.error || "未知错误"}`);
+          } else {
+            setNote(r.ok ? `✓ ${r.message || "完成"}` : `✗ ${r.error || "失败"}`);
+          }
+        } catch (e) {
+          // 关键：不管 toast 是否可用，错误都直接写在卡片上，不再"点了没反应"
+          const msg = e?.status ? `${e.message}（HTTP ${e.status}）` : (e?.message || String(e));
+          setNote(`✗ ${msg}`);
+          try { toast?.(`✗ ${msg}`); } catch { /* toast 不可用就算了 */ }
+        } finally {
+          setWorking("");
+        }
+      };
+      const s = status;
+      const btnBusy = (action) => working === action;
+      return h("div", null,
+        h("div", { className: "qbw-card" },
+          h("h4", null, "小红书服务（只读）"),
+          h("div", { className: "qbw-kv" }, h("span", null, "服务"),
+            h("span", null, s ? (s.service?.reachable ? `在线 · ${s.service.baseUrl}` : `不可用：${s.service?.error || "未知"}`) : "未检测")),
+          h("div", { className: "qbw-kv" }, h("span", null, "登录"),
+            h("span", null, s ? (s.login?.loggedIn ? `已登录 ${s.login.nickname || ""}` : "未登录 —— 点「扫码登录」") : "未检测")),
+          h("div", { className: "qbw-kv" }, h("span", null, "今日读取"),
+            h("span", null, s?.quota ? `${s.quota.used} 次${s.quota.limit > 0 ? ` / ${s.quota.limit}` : "（不限）"}` : "未检测")),
+          h("div", { className: "qbw-kv" }, h("span", null, "读取花费"),
+            h("span", null, s?.usage
+              ? `${fmtTokenNum(s.usage.tokens)} token / ${s.usage.turns} 回合（含在 QQ 内）`
+              : "未检测")),
+          h("div", { className: "qbw-actions" },
+            h(Btn, { kind: "qbw-btn2", disabled: !!working, onClick: () => act("status") }, btnBusy("status") ? "检查中…" : "检查状态"),
+            h(Btn, { kind: "qbw-btn2", disabled: !!working, onClick: () => act("start") }, btnBusy("start") ? "启动中…" : "启动服务"),
+            h(Btn, { disabled: !!working, onClick: () => act("login") }, btnBusy("login") ? "打开中…" : "扫码登录")),
+          note ? h("div", { className: "qbw-hint", style: { marginTop: "6px" } }, note) : null,
+          h("div", { className: "qbw-hint" }, "服务由计划任务托管（无控制台），DSH 重启不会带走它。只读：发布/评论/点赞/收藏/删 Cookie 从未注册给模型。")),
+        h(FieldGroups, { groups, cfg, set }));
+    }
+
     function QQTab({ cfg, set, admin, setAdmin, unified, setUnified, overview, busy, setBusy, toast, reload, goTab }) {
       const [query, setQuery] = useState("");
       const tools = Object.keys(cfg?.socialV2?.tools ?? {});
@@ -4819,7 +4912,7 @@ F("socialV2.voice.ffmpegPath", "ffmpeg 路径", "留空走 PATH", "text", { wide
         extra ? h("div", { className: "qbw-budget-extra" }, extra) : null);
     }
 
-    function TokenTab({ budget, limits, onChange, disabled, alertedToday, onSave, busy, toast }) {
+    function TokenTab({ budget, limits, onChange, disabled, alertedToday, onSave, busy, toast, xhs }) {
       useStyleOnce();
       if (!budget || !limits) {
         return h("div", { className: "qbw-hint" }, "正在读取额度与今日用量…");
@@ -4846,7 +4939,8 @@ F("socialV2.voice.ffmpegPath", "ffmpeg 路径", "留空走 PATH", "text", { wide
               "数据来源：DSH session/event 实时累计（QQ + B站 + 黑话学习等）。",
               totalPair.cny != null || totalPair.tokens != null
                 ? ` 总额度已用 ${fmtPercent(totalRatio)}。`
-                : " 还没设总额度。")),
+                : " 还没设总额度。",
+              ` 小红书读取的模型花费同样计入这里；另有单独上限：每天 ${Number(xhs?.maxReadsPerDay) > 0 ? `${Number(xhs.maxReadsPerDay)} 次` : "不限"}、每群每小时 ${Number(xhs?.maxPerHour) > 0 ? `${Number(xhs.maxPerHour)} 次` : "不限"}（在「小红书」页调整）。`)),
           h("div", { className: "qbw-budget-status" },
             blocked.total ? h("span", { className: "qbw-badge bad" }, "总额已达上限：QQ 不再唤醒 / B站 不再叫醒") : null,
             alertedToday ? h("span", { className: "qbw-badge warn" }, `今天已提醒过${alertedText ? `（${alertedText}）` : ""}`) : null,
@@ -5138,6 +5232,7 @@ F("socialV2.voice.ffmpegPath", "ffmpeg 路径", "留空走 PATH", "text", { wide
       ["voice", "语音"],
       ["pet", "桌宠"],
       ["bili", "B站"],
+      ["xhs", "小红书"],
       ["tokens", "Token 额度"],
       ["watch", "观看历史"],
       ["memory", "记忆"],
@@ -5345,7 +5440,8 @@ F("socialV2.voice.ffmpegPath", "ffmpeg 路径", "留空走 PATH", "text", { wide
         if (tab === "purpose") return h(PurposeTab, { qq, setQq: setQqPath, unified, setUnified: setUnifiedPath, overview, busy, setBusy, toast: notify, reload, goTab: setTab });
         if (tab === "qq") return h(QQTab, { cfg: qq, set: setQqPath, admin: unified?.admin ?? {}, setAdmin, unified, setUnified: setUnifiedPath, overview, busy, setBusy, toast: notify, reload, goTab: setTab });
         if (tab === "bili") return h(BiliTab, { cfg: bili, set: setBiliPath, qq: normalizedQq, setQqPath, admin: unified?.admin ?? {}, setAdmin, unified, setUnified: setUnifiedPath, qqPrivate: normalizedQq?.allow?.private ?? [], qqAllowAll: normalizedQq?.allowAllWhenEmpty === true, overview, busy, setBusy, toast: notify, reload });
-        if (tab === "tokens") return h(TokenTab, { budget, limits: limitDraft, onChange: setLimitDraft, disabled: !!busy, alertedToday: tokenAlerted, onSave: () => save(false), busy, toast: notify });
+        if (tab === "xhs") return h(XhsTab, { cfg: qq, set: setQqPath, busy, setBusy, toast: notify });
+        if (tab === "tokens") return h(TokenTab, { budget, limits: limitDraft, onChange: setLimitDraft, disabled: !!busy, alertedToday: tokenAlerted, onSave: () => save(false), busy, toast: notify, xhs: qq?.xhs ?? {} });
         if (tab === "watch") return h(WatchTab, { busy, setBusy, toast: notify, goTab: setTab });
         if (tab === "voice") return h(VoiceTab, { toast: notify });
         if (tab === "pet") return h(PetTab, { toast: notify, unified, setUnified: setUnifiedPath });

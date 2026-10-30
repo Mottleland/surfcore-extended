@@ -164,6 +164,9 @@ const SAFE_PREFIXES = [
   'mcp__snowluma__',
   'mcp__snowluma-host__',
   'mcp__web-search-safe__',
+  // 小红书只读适配层：该命名空间下只有 xhs_check_status / xhs_read_note_from_share_url，
+  // 没有发布/评论/点赞/收藏/删 Cookie —— 上游自带的写工具从未被注册进来。
+  'mcp__xhs-reader__',
 ]
 
 // 无害模型侧工具：ask_user_question 用于把问题转给管理员/用户，

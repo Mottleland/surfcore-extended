@@ -1,0 +1,11 @@
+﻿# 统一行尾：上游是 LF；本地 Windows 检出若保留 CRLF，会让每次升级变成整文件冲突。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.exe binary
+*.zip binary

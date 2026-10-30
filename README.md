@@ -18,6 +18,33 @@
 
 ---
 
+## 本分支（`local`）相对上游的差异
+
+> 这是 [@Mottleland](https://github.com/Mottleland) 的扩展分支，在上游 SurfCore（v0.7.14）基础上增加了**小红书只读接入**。
+> 仓库默认分支已是 `local`，`git clone` 直接就是这一版。
+
+| 改动 | 说明 |
+|---|---|
+| **小红书只读接入** | 群友发小红书链接 / 分享卡片时，AI 先读笔记（正文 + 热评）再引用原消息回复。适配层只暴露 2 个只读工具，发布/评论/点赞/收藏/删 Cookie **从不注册**。 |
+| 触发修复 | 链接识别提到 `anyMessage` 之前（活跃模式下原本永远轮不到）；支持 `xhslink.com` / `xhslink.cn` 短链与 QQ 卡片 JSON/XML；桥接重启后从补历史里补识别。 |
+| 记忆归属 | 小红书读取以 `platform=shared`、`source=xhs-read` 独立入库，不会被当成群友发言。 |
+| 额度 | 读取花费计入 QQ 会话与总额度；另有「每天最多读取」「每群每小时触发」两个独立上限。 |
+| 人格卡 | 去掉"斗嘴许可"，新增【分寸：宁可无趣，不许斗嘴】与【小红书分享：先读再评】。 |
+| 其它修复 | B站生物钟二次唤醒死锁；B站记忆改用角色目录；主动机会只对群生效。 |
+| 工程 | 行尾统一 LF（避免升级整文件冲突）、`scripts/xhs-doctor.mjs` 一键自检、`docs/guides/XHS.md` 部署文档。 |
+
+### 小红书（可选）
+
+```powershell
+node scripts/xhs-doctor.mjs      # 先体检：缺什么会直接告诉你
+```
+
+完整步骤（下载引擎、扫码登录、配置 token、Windows 代理与 Defender 坑）见
+**[docs/guides/XHS.md](docs/guides/XHS.md)**。不想要这块能力时，`config.json` 里设
+`{"xhs":{"enabled":false}}` 即可整条关闭。
+
+---
+
 ## 让 DSH 自己装（也可以只发一条链接）
 
 把这句话发给 DSH：

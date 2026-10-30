@@ -107,6 +107,10 @@ function planFromSlot(state, slot) {
     slots: state.slots,
     warnings: Array.isArray(state.warnings) ? state.warnings : [],
     action: slot.action,
+    // 补：上一趟醒来会留下 woke=true，而 scheduler 的 tick 把 woke===true 当作"该重算"，
+    // 于是每次重算又带着旧的 woke=true 回来 → 第二趟永远排不出来（maxWakesPerDay>1 时的死循环）。
+    // 这里排的是"还没醒"的新计划，必须把它清掉。
+    woke: false,
     fired: false,
     done: false,
     at: slot.at,

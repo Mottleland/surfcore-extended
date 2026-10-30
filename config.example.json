@@ -407,5 +407,20 @@
       "uin": null,
       "name": ""
     }
+  },
+  "xhs": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:18060",
+    "authToken": "",
+    "port": 18060,
+    "allowLaunch": false,
+    "timeoutMs": 20000,
+    "maxComments": 5,
+    "commentOrder": "hot",
+    "maxReadsPerDay": 20,
+    "maxPerHour": 3,
+    "taskName": "XhsMcpService",
+    "launchScript": "",
+    "loginScript": ""
   }
 }

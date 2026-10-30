@@ -15,6 +15,7 @@ import * as safeFetch from '../src/safe-fetch.js';
 import * as forward from '../src/forward.js';
 import * as selfIdentity from '../src/self-identity.js';
 import * as slang from '../src/slang-learner.js';
+import * as xhsLink from '../src/xhs-link.js';
 import * as sticker from '../src/sticker-lib.js';
 import * as modelPrices from '../src/model-prices.js';
 import * as tokenLedger from '../src/token-ledger.js';
@@ -243,6 +244,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     ...adminIdentity, ...roleCard, ...memoryCard, ...biliCard, ...characterStore, ...historyCatchup,
     ...questionAnswers, ...ownerAudit,
     ...purposeEngine,
+    ...xhsLink,
     ...conversationClosure,
     // 角色系统在 fixture 里等价于「没有角色」：当前角色 null，记忆卡指向 temp/dsh/surfcore/memory。
     // 不能直接用真实 character-store 的 DSH_HOME（它在主进程 import 时已固定）。
