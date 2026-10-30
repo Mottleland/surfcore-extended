@@ -109,8 +109,25 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const STATE_DIR = path.join(ROOT, 'state');
-// 小红书子账本标记：每次投递 xhsLink 唤醒记一条，插件按它把"这次唤醒带来的回合花费"
-// 单独汇总展示（仍然只算一次，属于 QQ 额度）。
+// 小红书服务探活（30 秒缓存）：服务没起时不要让 xhsLink 唤醒白烧一个回合。
+let xhsHealthCache = { at: 0, ok: false };
+async function xhsServiceHealthy() {
+  const now = Date.now();
+  if (now - xhsHealthCache.at < 30_000) return xhsHealthCache.ok;
+  const base = String(cfg?.xhs?.baseUrl || 'http://127.0.0.1:18060').replace(/\/+$/, '');
+  let ok = false;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    try {
+      const res = await fetch(`${base}/health`, { signal: ctrl.signal });
+      ok = res.ok;
+    } finally { clearTimeout(timer); }
+  } catch { ok = false; }
+  xhsHealthCache = { at: now, ok };
+  return ok;
+}
+
 const XHS_MARKS_FILE = path.join(STATE_DIR, 'xhs-marks.json');
 function markXhsWake(key) {
   try {
@@ -12501,7 +12518,8 @@ async function main() {
     }
     // 小红书分享链接：群友发来笔记链接时，单独给一个"先读再评"的唤醒原因。
     // 去重：同一条链接 24 小时内只主动触发一次（重复刷屏不再烧回合）。
-    if (tr.xhsLink !== false) {
+    // xhs.enabled=false 时整条链路关闭（新用户没装服务时可以一键关掉）。
+    if (tr.xhsLink !== false && cfg.xhs?.enabled !== false) {
       const urls = extractXhsUrls(plainContent);
       if (urls.length) {
         const now = Date.now();
@@ -12904,6 +12922,16 @@ async function main() {
       log(`[鱼群保护] 跳过唤醒 ${key}（${reason}）：${fishGuardReasonText(fishWake) || '保护冷却中'}`);
       dropXhsMark();
       return;
+    }
+    // 小红书服务健康门：服务没起时**不唤醒**（否则白烧一个模型回合，她只能说"读不到"）。
+    // 判定用 1.5s /health 探活，30 秒内复用结果；失败就撤回链接标记，服务起来后还能再触发。
+    const xhsPendingNow = st.xhsPendingUrl && Date.now() - Number(st.xhsPendingAt || 0) < 10 * 60 * 1000;
+    if (String(reason).split(':')[0] === 'xhsLink' || xhsPendingNow) {
+      if (!(await xhsServiceHealthy())) {
+        log(`[小红书] 服务不可用（${cfg.xhs?.baseUrl || 'http://127.0.0.1:18060'}），跳过唤醒不烧回合；装好服务后会再次触发`);
+        dropXhsMark();
+        return;
+      }
     }
     // Token 防爆破：鱼群守则之后、真正投递之前。被拦时消息保留在未读，不烧模型回合。
     const directWake = isDirectFishGuardWake(reason) || fishGuardDirectUnread(st) || fishGuardOwnerUnread(st) || Boolean(bypass);
