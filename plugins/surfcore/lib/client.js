@@ -2262,7 +2262,7 @@ F("toolsPath", "bili.mjs 路径", "留空 = 用合体插件自带的 tools/", "t
             h("span", null, s?.quota ? `${s.quota.used} 次${s.quota.limit > 0 ? ` / ${s.quota.limit}` : "（不限）"}` : "未检测")),
           h("div", { className: "qbw-kv" }, h("span", null, "读取花费"),
             h("span", null, s?.usage
-              ? `${Number(s.usage.tokens || 0).toLocaleString("en-US")} token / ${s.usage.turns} 回合（含在 QQ 内）`
+              ? `${Number(s.usage.tokens || 0).toLocaleString("en-US")} token ≈ ¥${(Number(s.usage.cost) || 0).toFixed(4)} / ${s.usage.turns} 回合（含在 QQ 内）`
               : "未检测")),
           h("div", { className: "qbw-actions" },
             h(Btn, { kind: "qbw-btn2", disabled: !!working, onClick: () => act("status") }, btnBusy("status") ? "检查中…" : "检查状态"),

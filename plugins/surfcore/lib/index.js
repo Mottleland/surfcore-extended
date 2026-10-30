@@ -88,6 +88,7 @@ import {
 import { fishGuardStateSummary } from '../tools/lib/fish-guard.mjs';
 import { summarizeQqFishGuard } from './qq-fish-guard.js';
 import { applySessionPermission } from './scheduler.js';
+import { priceUsage, resolvePriceTable } from '../../../src/model-prices.js';
 import { fileStamp, isStale } from '../../../src/config-stamps.js';
 
 // 版本号只有一个来源：仓库根 package.json（与 plugins/surfcore/package.json 必须一致，
@@ -1819,11 +1820,20 @@ export function apply(ctx) {
 
   // 小红书子账本：把「由 xhsLink 唤醒引出的那些回合」的 token 单独汇总。
   // 只读 token-usage.jsonl（桥接写的逐轮账本），不重复计费；金额口径仍归 QQ。
+  let xhsPriceCache = { at: 0, table: null };
+  function xhsPriceTable() {
+    const now = Date.now();
+    if (now - xhsPriceCache.at < 60_000 && xhsPriceCache.table) return xhsPriceCache.table;
+    const table = resolvePriceTable(readQqConfig()?.config?.pricing);
+    xhsPriceCache = { at: now, table };
+    return table;
+  }
+
   function xhsUsageToday() {
     const stateRoot = path.resolve(PLUGIN_ROOT, '..', '..', 'state');
     const day0 = new Date(); day0.setHours(0, 0, 0, 0);
     let marks = [];
-    try { marks = JSON.parse(fs.readFileSync(path.join(stateRoot, 'xhs-marks.json'), 'utf8')) ?? []; } catch { return { tokens: 0, turns: 0 }; }
+    try { marks = JSON.parse(fs.readFileSync(path.join(stateRoot, 'xhs-marks.json'), 'utf8')) ?? []; } catch { return { tokens: 0, turns: 0, cost: 0 }; }
     const byKey = new Map();
     for (const m of Array.isArray(marks) ? marks : []) {
       const k = String(m?.key || '');
@@ -1833,9 +1843,10 @@ export function apply(ctx) {
       arr.push(at);
       byKey.set(k, arr);
     }
-    if (!byKey.size) return { tokens: 0, turns: 0 };
+    if (!byKey.size) return { tokens: 0, turns: 0, cost: 0 };
     let tokens = 0;
     let turns = 0;
+    let cost = 0;
     try {
       for (const line of fs.readFileSync(path.join(stateRoot, 'token-usage.jsonl'), 'utf8').split('\n')) {
         if (!line) continue;
@@ -1849,10 +1860,15 @@ export function apply(ctx) {
         const b = j.b ?? {};
         tokens += ['cacheMiss', 'cacheHit', 'cacheWrite', 'output', 'reasoning']
           .reduce((acc, k) => acc + (Number(b[k]) || 0), 0);
+        // 金额：用同一份价目表折算，口径与「Token 额度」页一致
+        try {
+          const p = priceUsage(b, { model: j.model, at: t, table: xhsPriceTable() });
+          cost += Number(p?.cost?.total) || 0;
+        } catch { /* 价目表缺该模型就只算 token */ }
         turns += 1;
       }
     } catch { /* 没有账本文件就是 0 */ }
-    return { tokens, turns };
+    return { tokens, turns, cost };
   }
 
   // ── 小红书设置页接口（/dsh-surfcore/api/xhs）────────────────────────────
