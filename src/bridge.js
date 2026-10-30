@@ -114,10 +114,10 @@ const ROOT = path.resolve(__dirname, '..');
 const STATE_DIR = path.join(ROOT, 'state');
 // 小红书服务探活（30 秒缓存）：服务没起时不要让 xhsLink 唤醒白烧一个回合。
 let xhsHealthCache = { at: 0, ok: false };
-async function xhsServiceHealthy() {
+async function xhsServiceHealthy(baseUrl = '') {
   const now = Date.now();
   if (now - xhsHealthCache.at < 30_000) return xhsHealthCache.ok;
-  const base = String(cfg?.xhs?.baseUrl || 'http://127.0.0.1:18060').replace(/\/+$/, '');
+  const base = String(baseUrl || 'http://127.0.0.1:18060').replace(/\/+\$/, '');
   let ok = false;
   try {
     const ctrl = new AbortController();
@@ -13028,7 +13028,7 @@ async function main() {
     // 判定用 1.5s /health 探活，30 秒内复用结果；失败就撤回链接标记，服务起来后还能再触发。
     const xhsPendingNow = st.xhsPendingUrl && Date.now() - Number(st.xhsPendingAt || 0) < 10 * 60 * 1000;
     if (String(reason).split(':')[0] === 'xhsLink' || xhsPendingNow) {
-      if (!(await xhsServiceHealthy())) {
+      if (!(await xhsServiceHealthy(cfg.xhs?.baseUrl))) {
         log(`[小红书] 服务不可用（${cfg.xhs?.baseUrl || 'http://127.0.0.1:18060'}），跳过唤醒不烧回合；装好服务后会再次触发`);
         dropXhsMark();
         return;
