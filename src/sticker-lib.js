@@ -295,7 +295,7 @@ export function buildStickerContext(entries, max = 8) {
 export function buildStickerStrategyHint() {
   return [
     '【表情包策略：像真人一样用，不刷屏】',
-    '- 合适时机：被戳中笑点/槽点、接梗、怼人、赞同、自嘲、安慰、无语、赢了/输了、告别/晚安、别人发了表情时回一张，都可以自然用。',
+    '- 合适时机：被戳中笑点/槽点、接梗、赞同、自嘲、安慰、无语、赢了/输了、告别/晚安、别人发了表情时回一张，都可以自然用。',
     '- 频率：普通闲聊不用每条都配；大约每 3~5 轮来一张就够，热闹/玩梗时可以更密，但不要连续刷屏。',
     '- 选择：每个表情都有编号、情绪分类和内容描述（见【可用表情包】）；先按当前语境的情绪找，再按内容挑画面。桥接会在唤醒提示里给一段【表情匹配】推荐（本地语义索引算的最贴合 1~3 张）；如果新消息是在 qq_wait_for_messages / qq_get_unread_messages 的返回里看到的，返回值会带 stickerMatch.hint，贴得上就发推荐里的那张。',
     '- 发送：用 qq_send_sticker，stickerId 可以直接写编号（"#03" 或 "3"）；一条消息只能是一张表情，不能在同一气泡里附带文字；想说的话先用 qq_send_message / qq_reply 作为单独气泡发出，再单独发表情。需要引用/点名时传 replyToMessageId / atUserId（群聊）。',
