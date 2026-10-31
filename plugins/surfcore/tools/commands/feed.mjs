@@ -227,7 +227,18 @@ const uniq = [...new Map(pool.map((x) => [x.bv, x])).values()]
   .filter((x) => !seen.has(x.bv) && !likedBVs.has(x.bv) && !favBVs.has(x.bv))
   .filter((x) => !(selfName && String(x.up ?? '').includes(selfName)))
 
-const recentFiltered = filterRecentlyPicked(uniq, pickMap, { now: Date.now(), days: RECENT_DAYS })
+// 不爱看的词：标题命中就剔掉（以前 dislike 只在复盘/记忆里出现，等于没生效）
+const dislikeWords = (cfg.preferences?.dislike ?? [])
+  .map((w) => String(w ?? '').trim().toLowerCase())
+  .filter((w) => w.length >= 2)
+const notDisliked = dislikeWords.length
+  ? uniq.filter((x) => !dislikeWords.some((w) => String(x.t ?? '').toLowerCase().includes(w)))
+  : uniq
+if (dislikeWords.length) {
+  console.error(`[不爱看] 命中 ${dislikeWords.join(' / ')} 剔除 ${uniq.length - notDisliked.length} 条`)
+}
+
+const recentFiltered = filterRecentlyPicked(notDisliked, pickMap, { now: Date.now(), days: RECENT_DAYS })
 const candidates = recentFiltered.map((x) => {
   const hits = preferenceHits(x.t, enabled)
   return { ...x, _hits: hits, _score: candidateScore(x, hits, boostOf(x.t)) }

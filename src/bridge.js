@@ -12833,6 +12833,53 @@ async function main() {
     }
   }
 
+  // 私聊分寸：每轮都重申（系统提示很长，规则容易被稀释；放在用户消息里最靠前）。
+  function privateToneBlock() {
+    return [
+      '【私聊分寸（每轮都要守）】',
+      '- 这是私聊：对方说完就回应，不用找时机插话（下面若带了群聊上下文，那只是背景，不代表现在在群里聊）。',
+      '- 不追问、不催：不说「问你话呢 / 别装傻 / 怎么不回」这类话；对方不想说就让它过去。',
+      '- 不阴阳、不挤兑：不同意就平实说一次理由，说完就收。',
+      '- 对方开玩笑就顺着玩笑接，不把玩笑当成挑衅。',
+    ].join('\n');
+  }
+
+  // 私聊对象如果也在某个群里说过话，就把那个群的近况带上（只当背景，不主动复述）。
+  function privatePeerGroupBlock(key) {
+    const m = /^private:(\d+)$/.exec(String(key ?? ''));
+    if (!m) return '';
+    const peerId = m[1];
+    const now = Date.now();
+    const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    const hits = [];
+    for (const [gkey, st] of socialV2.conversations) {
+      if (!String(gkey).startsWith('group:')) continue;
+      const msgs = Array.isArray(st?.recentMessages) ? st.recentMessages : [];
+      let lastAt = 0;
+      for (const msg of msgs) {
+        if (String(msg?.userId ?? '') === peerId) lastAt = Math.max(lastAt, Number(msg?.at) || 0);
+      }
+      if (!lastAt || now - lastAt > MAX_AGE_MS) continue;
+      hits.push({ key: gkey, st, lastAt });
+    }
+    if (!hits.length) return '';
+    hits.sort((a, b) => b.lastAt - a.lastAt);
+    const lines = ['【群聊上下文】对方也在你们共同的群里，下面是群里的近况（只当背景，别主动复述，也别提「我翻过记录」）：'];
+    for (const h of hits.slice(0, 2)) {
+      const name = fishGuardGroupName(h.key) || h.key.replace('group:', '群 ');
+      const recent = (h.st.recentMessages ?? []).slice(-8);
+      lines.push('');
+      lines.push(`群「${name}」最近：`);
+      for (const msg of recent) {
+        const who = msg?.isSelf ? '我' : (String(msg?.sender ?? '群友').slice(0, 16) || '群友');
+        const text = String(msg?.plain ?? msg?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        if (!text) continue;
+        lines.push(`- ${who}：${text}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
   function buildWakePromptV2(key, reason) {
     const roleState = readRoleState();
     const roleLine = roleState.role ? `【当前角色】${roleState.role}（完整角色卡请调用 qq_get_prompt 查看）\n\n` : '';
@@ -12942,7 +12989,11 @@ async function main() {
     const xhsExtra = xhsFresh && reason !== 'xhsLink' && String(key).startsWith('group:')
       ? `【群里刚发来小红书链接】${xhsUrl}\n先调 mcp__xhs-reader__xhs_read_note_from_share_url 读这篇笔记，再回话；读不到就如实说没读到，别假装看过。\n读完别只评正文：从返回的 comments 里挑 1~2 条接一句（赞同/反驳/补充都行），让人看出你真的看了评论区。\n\n`
       : '';
-    const base = roleLine + identityLine + provenanceLine + adminLine + biliLine + memoryCardLine + tokenLine + initialPromptLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine + xhsExtra;
+    // 私聊专属：每轮重申分寸 + 共同群的上下文（只对 private: 生效）
+    const privateExtra = String(key).startsWith('private:')
+      ? [privateToneBlock(), privatePeerGroupBlock(key)].filter(Boolean).join('\n\n')
+      : '';
+    const base = roleLine + identityLine + provenanceLine + adminLine + biliLine + memoryCardLine + tokenLine + initialPromptLine + antiAiLine + proactiveLine + closureLine + stickerLine + stickerMatchLine + replyLine + statusLine + wakeLine + memoryLine + participationLine + fishGuardLine + tokenGuardLine + preSleepLine + xhsExtra + privateExtra;
     if (reason === 'bootstrap') {
       return `${base}【引导唤醒】你已接入 QQ 会话 ${key}。\n当前是二代仿真模式：你的文本输出不会自动发送到 QQ，所有发言必须通过工具完成。\n请先调用 qq_get_prompt 查看角色、推荐值、可用工具和状态；有待回应的消息先按首回复节奏处理，最后才用 qq_set_wake_config 设置你希望如何被唤醒。`;
     }
@@ -12974,7 +13025,11 @@ async function main() {
     if (reason === 'poke') {
       return `${base}【唤醒】${key}\n原因：有人拍了一拍（可能拍了你，也可能拍了别人）。\n先看未读/最近消息里的 [拍一拍] 事件：如果是拍你，可以自然回应一句，也可以用 qq_send_poke 回一个拍一拍；如果是拍别人，觉得有趣也可以接梗。除了回应，偶尔也可以主动戳一下正在聊的人/熟人，像真人手贱/提醒/逗一下，但别频繁。不想接就安静收尾（qq_mark_read 或 qq_set_wake_config）。`;
     }
-    return `${base}【唤醒】${key}\n原因：${reason}\n【行动前】先判断：群里在聊什么？热闹还是冷清？有没有人直接找你？对方说完了吗？你有没有真正想说的？\n如果群聊正热但没人叫你，可以插一句有趣的/相关的，插不上再看情况潜水；不要一上来就划走。\n【引用：只在必要时用】只有你这条消息指向的人或消息并非最新一条别人的消息，或者你连续的几句话中不同消息指代的是不同的消息或人时，才用 qq_reply 或 qq_send_message 的 replyToMessageId 指向具体那条；其他情况不要引用，别让对方猜。\n你可以调用工具查看未读消息、人设、状态，自行决定是否发言；决定潜水前必须按上面的【沉睡前强制等待】先等够观察窗口。开口前先看【对话收尾判断】：判断这段已自然结束时，不用再补一句，直接 qq_close_conversation 收尾。`;
+    // 私聊不适用群聊那套「找时机插话」，措辞分开写，避免每轮都在暗示"这是群"。
+    const sceneHint = String(key).startsWith('private:')
+      ? '这是私聊：对方说完就回应，不追问、不催，也不用找时机插话。'
+      : '如果群聊正热但没人叫你，可以插一句有趣的/相关的，插不上再看情况潜水；不要一上来就划走。';
+    return `${base}【唤醒】${key}\n原因：${reason}\n【行动前】先判断：现在在聊什么？热闹还是冷清？有没有人直接找你？对方说完了吗？你有没有真正想说的？\n${sceneHint}\n【引用：只在必要时用】只有你这条消息指向的人或消息并非最新一条别人的消息，或者你连续的几句话中不同消息指代的是不同的消息或人时，才用 qq_reply 或 qq_send_message 的 replyToMessageId 指向具体那条；其他情况不要引用，别让对方猜。\n你可以调用工具查看未读消息、人设、状态，自行决定是否发言；决定潜水前必须按上面的【沉睡前强制等待】先等够观察窗口。开口前先看【对话收尾判断】：判断这段已自然结束时，不用再补一句，直接 qq_close_conversation 收尾。`;
   }
 
   function buildWakeReminderPromptV2(key) {

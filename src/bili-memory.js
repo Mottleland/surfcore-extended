@@ -557,7 +557,7 @@ export function createBiliMemory({ stateDir, home = os.homedir(), log = () => {}
     const selfMid = String(self.mid ?? '').trim();
     const selfSpace = /^\d{3,}$/.test(selfMid) ? `https://space.bilibili.com/${selfMid}` : '';
     lines.push(`我自己的 B 站主页：「${selfName}」${selfSpace ? `（${selfSpace}；截图里可能只显示昵称和头像）` : ''}。别人发来的截图/图片里只要出现这个昵称、我的头像或 B 站个人主页/资料卡，那就是**我自己**——先认出「这是 wo」，再聊内容；不要用「那张主页」这种口吻把我说成别人。`);
-    lines.push(`我的口味：${(prefs.like ?? []).slice(0, 8).join('、') || 'AI 工具、鲸鱼娘、可爱+荒诞的短整活'}；不喜欢 ${(prefs.dislike ?? []).slice(0, 6).join('、') || '带货、擦边、标题党'}。`);
+    lines.push(`我的口味：${(prefs.like ?? []).slice(0, 12).join('、') || 'AI 工具、鲸鱼娘、可爱+荒诞的短整活'}；不喜欢 ${(prefs.dislike ?? []).slice(0, 8).join('、') || '带货、擦边、标题党'}。`);
     lines.push('');
     lines.push('最近在 B 站（真实看过/发过，细节以这里为准，不要编）：');
     const seen = new Set();
