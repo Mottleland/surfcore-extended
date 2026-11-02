@@ -8956,6 +8956,33 @@ async function main() {
     return { buffer: buf, mimeType: mimeFromBuffer(buf) };
   }
 
+  // 大图直接塞给模型容易被丢（实测 4.5MB PNG 在会话里「白屏」）：超过阈值先用 ImageMagick 压一版。
+  // 没装 magick 时安静跳过，退回原图。
+  const INLINE_IMAGE_MAX_BYTES = Math.max(256 * 1024, Number(cfg.socialV2?.media?.maxInlineBytes) || 1536 * 1024);
+  function shrinkImageForModel(buffer, mimeType) {
+    if (!Buffer.isBuffer(buffer) || buffer.length <= INLINE_IMAGE_MAX_BYTES) return null;
+    if (cfg.socialV2?.media?.shrinkImages === false) return null;
+    let dir = '';
+    try {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-img-'));
+      const input = path.join(dir, 'in');
+      const output = path.join(dir, 'out.jpg');
+      fs.writeFileSync(input, buffer);
+      execFileSync('magick', [input, '-auto-orient', '-resize', '1568x1568>', '-strip', '-quality', '82', output], {
+        timeout: 20000,
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      const accepted = acceptImageBuffer(fs.readFileSync(output), '压缩后的图片');
+      return accepted ? { ...accepted, mimeType: 'image/jpeg' } : null;
+    } catch (error) {
+      log(`[media] 图片压缩跳过（${error?.code === 'ENOENT' ? '未安装 magick' : (error?.message ?? error)}）`);
+      return null;
+    } finally {
+      if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }
+    }
+  }
+
   async function fetchOneBotImage(media) {
     // 表情包（市场/收藏表情）优先走 CDN：get_image 对市场表情必然失败
     // （SnowLuma 缓存里没有该文件），先试 URL 能省一次失败往返，也更可靠。
@@ -9029,7 +9056,14 @@ async function main() {
     const result = isSticker
       ? (await tryUrls()) ?? (await tryGetImage())
       : (await tryGetImage()) ?? (await tryUrls());
-    if (result) return result;
+    if (result) {
+      const shrunk = shrinkImageForModel(result.buffer, result.mimeType);
+      if (shrunk && shrunk.buffer.length < result.buffer.length) {
+        log(`[media] 图片过大已压缩：${Math.round(result.buffer.length / 1024)}KB → ${Math.round(shrunk.buffer.length / 1024)}KB`);
+        return { ...shrunk, mimeType: shrunk.mimeType || 'image/jpeg' };
+      }
+      return result;
+    }
     if (failures.length) {
       log(`[media] ${label}获取失败（${failures.length} 次尝试）：${failures.slice(0, 3).join(' | ')}`);
     }
