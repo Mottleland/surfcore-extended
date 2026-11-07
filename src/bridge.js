@@ -112,6 +112,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const STATE_DIR = path.join(ROOT, 'state');
+// 「工具参数 JSON 破损」的静默重试计数（每个会话 10 分钟内最多 2 次）。
+const toolJsonRetry = new Map();
 // 小红书服务探活（30 秒缓存）：服务没起时不要让 xhsLink 唤醒白烧一个回合。
 let xhsHealthCache = { at: 0, ok: false };
 async function xhsServiceHealthy(baseUrl = '') {
@@ -15053,6 +15055,20 @@ async function main() {
                 // 以前这里只发 QQ、不写日志：出问题时 bridge.log 里什么都没有，排查只能靠猜（PR #24）。
                 log(`⚠️ agent 处理出错 (${key})：${safeMsg}`);
                 appendActivity(`${key} agent 处理出错：${safeMsg.slice(0, 80)}`);
+                // 模型偶尔会把工具参数输出成坏 JSON（输出被截断/转义出错）：这是内部故障，
+                // 不该贴到群里；静默重试一次，10 分钟内连续两次才报错。
+                if (/tool input is invalid JSON/i.test(safeMsg)) {
+                  const rec = toolJsonRetry.get(key) ?? { at: 0, n: 0 };
+                  if (Date.now() - rec.at > 10 * 60 * 1000) rec.n = 0;
+                  if (rec.n < 2) {
+                    rec.n += 1;
+                    rec.at = Date.now();
+                    toolJsonRetry.set(key, rec);
+                    log(`↻ ${key} 工具参数 JSON 破损，静默重试（第 ${rec.n} 次）`);
+                    setTimeout(() => { try { scheduleWakeV2(key, 'replyCheck'); } catch {} }, 3000);
+                    return;
+                  }
+                }
                 await sendToQQ(key, `⚠️ agent 处理出错：${safeMsg}`);
                 if (isFarewell) {
                   const st = socialState(key);
