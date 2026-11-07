@@ -25,6 +25,23 @@ function textOf(m) {
   return String(m?.plain ?? m?.text ?? m?.tail ?? '').replace(/\s+/g, ' ').trim();
 }
 
+// 截断时保住链接全文：小红书分享链接常 >200 字，按字符截会把 xsec_token 切掉，
+// 模型拿截断后的链接去调工具就会读到「笔记不可访问」。
+const URL_RE = /https?:\/\/[^\s"'<>（）]+/g;
+function truncateKeepUrls(text, limit) {
+  const s = String(text ?? '');
+  if (s.length <= limit) return s;
+  const urls = [];
+  const masked = s.replace(URL_RE, (u) => {
+    urls.push(u);
+    return `\u0000${urls.length - 1}\u0000`;
+  });
+  const urlChars = urls.reduce((sum, u) => sum + u.length, 1);
+  const budget = Math.max(40, limit - urlChars);
+  const rest = masked.length > budget ? `${masked.slice(0, budget).trimEnd()}…` : masked;
+  return rest.replace(/\u0000(\d+)\u0000/g, (_, i) => urls[Number(i)] ?? '');
+}
+
 function messageItem(m, caps) {
   const text = textOf(m);
   return {
@@ -32,7 +49,7 @@ function messageItem(m, caps) {
     messageId: m?.messageId ? String(m.messageId) : '',
     at: Number(m?.time) || Number(m?.at) || 0,
     sender: String(m?.sender ?? m?.user_id ?? ''),
-    text: text.slice(0, caps.textChars),
+    text: truncateKeepUrls(text, caps.textChars),
     textTruncated: text.length > caps.textChars,
     isSelf: m?.isSelf === true,
     isOwner: m?.isOwner === true,

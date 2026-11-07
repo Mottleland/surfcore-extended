@@ -232,3 +232,22 @@ test('bridge.js 的 xhs 依赖都已 import', async () => {
     assert.ok(imported, `bridge.js 使用了 ${name}，但没有从 xhs-link.js import`);
   }
 });
+
+// 回归：长链接（小红书分享常 >200 字）不能被截断，否则 xsec_token 被切、工具读不到。
+test('带小红书的超长消息保留完整链接', async () => {
+  const h = await harness();
+  try {
+    const token = 'C' + 'x'.repeat(160);
+    const url = `https://www.xiaohongshu.com/discovery/item/6aed8863000000000901de0a?app_platform=ios&xsec_token=${token}`;
+    const text = `[卡片] 一篇很长的分享标题 ${url}`;
+    assert.ok(text.length > 200);
+    await h.handleIncoming('group', '456', msg(text, 9), h.cfg);
+    const st = h.getSocialV2State('group:456');
+    const stored = (st.recentMessages || []).map((m) => String(m.plain || m.text || '')).find((t) => t.includes('xiaohongshu.com'));
+    assert.ok(stored, '应存下这条消息');
+    assert.ok(stored.length > 200, `长链接消息应保留全文，实际只有 ${stored.length} 字`);
+    assert.ok(stored.includes(token), 'xsec_token 不能被截断');
+  } finally {
+    await h.close();
+  }
+});

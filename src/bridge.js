@@ -14434,14 +14434,17 @@ async function main() {
         }
       }
     }
+    // 分享链接（尤其小红书）经常超过 200 字：按 200 截断会把 xsec_token 切掉，
+    // 模型再拿这条去调工具就只能读到"笔记不可访问"。带链接的消息放宽到 1200 字。
+    const messageTextLimit = /xiaohongshu\.com|xhslink\.(com|cn)/i.test(String(plainContent ?? textContent)) ? 1200 : 200;
     const msg = {
       seq: (st.lastUnreadSeq || 0) + 1,
       messageId: messageId != null ? String(messageId) : null,
       sender,
       userId: userId != null ? String(userId) : null,
-      text: truncateText(String(textContent), 200),
-      plain: truncateText(String(plainContent ?? textContent), 200),
-      tail: truncateTextTail(String(plainContent ?? textContent), 200),
+      text: truncateText(String(textContent), messageTextLimit),
+      plain: truncateText(String(plainContent ?? textContent), messageTextLimit),
+      tail: truncateTextTail(String(plainContent ?? textContent), messageTextLimit),
       quoteTargetIsSelf: !!quoteTargetIsSelf,
       isOwner: !!isOwner,
       ownerLabel: isOwner ? ownerMessageLabel() : '',
