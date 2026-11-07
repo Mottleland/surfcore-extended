@@ -20,7 +20,7 @@
 
 ## 本分支（`local`）相对上游的差异
 
-> 这是 [@Mottleland](https://github.com/Mottleland) 的扩展分支，在上游 SurfCore（v0.7.14）基础上增加了**小红书只读接入**。
+> 这是 [@Mottleland](https://github.com/Mottleland) 的扩展分支，在上游 SurfCore（v0.8.9）基础上增加了**小红书只读接入**。
 > 仓库默认分支已是 `local`，`git clone` 直接就是这一版。
 
 | 改动 | 说明 |
@@ -35,7 +35,7 @@
 | 其它修复 | B站生物钟二次唤醒死锁；B站记忆改用角色目录；主动机会只对群生效。 |
 | 工程 | 行尾统一 LF（避免升级整文件冲突）、`scripts/xhs-doctor.mjs` 一键自检、`docs/guides/XHS.md` 部署文档；`tests/` 下 38 项回归（小红书 28 + B站选题 10）。 |
 
-> 升级记录：`v0.6.22 → v0.7.14` 采用 `git merge`，保留上游全部改进的同时叠加上述改动；
+> 升级记录：`v0.7.14 → v0.8.9` 采用 `git merge`，保留上游全部改进的同时叠加上述改动；
 > 冲突只在 6 个文件（bridge / index / client / preset / guard / harness），其中 5 个是"两边都保留"。
 
 ### 小红书（可选）
