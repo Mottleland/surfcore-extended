@@ -5,10 +5,19 @@
 
 ## 一、会话分工（硬约束）
 
+> **2026-11-01 起：dev/main 双分支（用户拍板 A 方案）**
+>
+> - `dev`：集货区。所有日常修复/功能/文档都提交到这里；**不 bump、不打 tag、不发 Release、不推公开仓库**。
+> - `main`：稳定线，只放已发布状态。只接受「发布会话从 dev 合并」和「hotfix」两类提交。
+> - 发布会话：`git checkout main` → `git merge --no-ff dev` → 跑三条门禁 → bump/commit/tag/Release
+>   → **把 main 合回 dev**（`git checkout dev && git merge --no-ff main`）。
+> - 公开仓库/镜像**只同步 main**；zip 用户不会拿到半成品。需要志愿者测试时发 **GitHub Pre-release**
+>   （`/releases/latest` 天然忽略 prerelease，不打扰稳定用户）。
+
 | 会话 | 负责 | 禁止 |
 | --- | --- | --- |
-| **发布会话**（本会话） | 定版本号、写 CHANGELOG、同步公开仓库、打 tag、发 Release、验证线上 | 不在没测绿、没提交时发布 |
-| **编辑会话** | 改代码、加测试、写 `docs/cases/*.md`、本地提交 | **不改 `package.json` 的 `version`**、不打 tag、不推公开仓库、不跑发布脚本 |
+| **发布会话**（本会话） | 合并 dev→main、定版本号、写 CHANGELOG、同步公开仓库、打 tag、发 Release、验证线上、发完把 main 合回 dev | 不在没测绿、没提交时发布 |
+| **编辑会话** | 改代码、加测试、写 `docs/cases/*.md`、提交到 **`dev`** | **不改 `package.json` 的 `version`**、不打 tag、不推公开仓库、不跑发布脚本、不直接提交到 `main` |
 
 编辑会话完成一个修复后，向发布会话交接（**每次改动都要有，不能只在对话里说**）：
 
@@ -17,6 +26,15 @@
 改动层级（实现层还是接口层；接口是否向后兼容）/ 完整逻辑与爆炸半径（case 里「完整逻辑」段）/
 失败路径（用户看到什么、下一步点什么、有没有失败分支测试）/ 还有什么没验证
 ```
+
+
+### dev 构建（测试通道，2026-11-01）
+
+- 在 `dev` 分支上运行：`GH_TOKEN=... node scripts/publish-dev.mjs --yes`；
+- 版本规则：stable `0.8.6` 不变；dev 构建是 `0.8.6-dev.1 / dev.2 …`（同号下**低于**正式版）；
+- 只创建 **Pre-release** + `dev` 分支 + tag；`/releases/latest` 忽略 Pre-release，稳定用户零打扰；
+- 测试机在「检查更新」下面单选 **dev**；切回 **main** 会清掉旧检查结果，不会再被 dev 弹窗打扰；
+- dev 构建同样要过清单门禁（脚本内部 `--verify-ref HEAD`）。
 
 ## 一·五、防复发门禁（2026-10-30，每次发版必跑）
 
@@ -28,6 +46,7 @@
 | 1 | 清单由 git blob 生成 | `node scripts/release-manifest.mjs` | 工作区干净；输出 `source=git HEAD` |
 | 2 | 清单与提交逐字节一致 | `node scripts/release-manifest.mjs --verify-ref HEAD` | `问题 0 个` |
 | 3 | 发布物与清单一致 | 下载 tag 归档 → `node scripts/release-manifest.mjs --verify <dir>` | `不符 0 / 缺失 0` |
+| 3b | 归档下载不可达时的备用核对 | `GH_TOKEN=... node scripts/verify-remote-manifest.mjs <repo> vX.Y.Z` | `一致 504 / 不符 0 / 缺失 0` |
 
 **发布脚本纪律**：`scripts/publish-via-api.mjs` 必须用 `git show HEAD:<path>` 取内容上传；
 禁止读工作区文件（Windows CRLF → 远端仓库 CRLF → 校验必失败）。
@@ -46,11 +65,24 @@ cd D:\deepseekwork\surfcore
 git status --porcelain          # 必须干净，或有明确列出的待发文件
 git log --oneline -5            # 确认最近提交都是要发的
 node -e "console.log(require('./package.json').version)"   # 当前版本
-npm run test:audit              # 必须全绿（当前 83/83；新增/删除测试后同步这个数）
+npm run test:audit              # 必须全绿（当前 95/95；新增/删除测试后同步这个数）
 cd plugins/surfcore && npm test # 必须 0 失败
 ```
 
 然后向用户确认：**版本号 + 发布范围（哪些仓库）**。
+
+## 二·五、命名规则（2026-10-31 用户反馈）
+
+**GitHub Release 的 title 只写版本号，不带括号描述**：
+
+```
+✅ SurfCore v0.8.0
+❌ SurfCore v0.8.0（群分层 + 人格语气 + 智能拆分 + …）
+```
+
+- 具体改了什么写在 Release 的 **body** 与 CHANGELOG，不要塞进标题；
+- tag 名固定 `vX.Y.Z`；
+- 本地提交信息可以是 `release: vX.Y.Z`，不要堆功能清单。
 
 ## 三、发布步骤
 

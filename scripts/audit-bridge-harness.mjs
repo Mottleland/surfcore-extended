@@ -20,24 +20,46 @@ import * as sticker from '../src/sticker-lib.js';
 import * as modelPrices from '../src/model-prices.js';
 import * as tokenLedger from '../src/token-ledger.js';
 import * as voiceLib from '../src/send-voice-lib.js';
+import * as voiceDiagnostics from '../src/voice-diagnostics.js';
+import * as allowlist from '../src/allowlist.js';
+import * as callname from '../src/callname.js';
+import * as personaIdentity from '../src/persona-identity.js';
 import { synthesizeToFile } from '../src/voice-tts.js';
 import * as presetPrompt from '../src/preset-prompt.js';
 import * as fishGuard from '../src/fish-guard.js';
 import * as tokenGuard from '../src/token-guard.js';
 import * as tokenBudget from '../src/token-budget.js';
+import * as turnGuard from '../src/turn-guard.js';
+import * as gateEvents from '../src/gate-events.js';
+import * as dshModelFollow from '../src/dsh-model-follow.js';
+import * as commandSpam from '../src/command-spam.js';
 import * as adminIdentity from '../src/admin-identity.js';
 import * as questionAnswers from '../src/question-answers.js';
 import * as ownerAudit from '../src/owner-audit.js';
 import * as roleCard from '../src/role-card.js';
+import * as personaLayers from '../src/persona-layers.js';
+import * as wakePolicy from '../src/wake-policy.js';
+import * as groupPolicy from '../src/group-policy.js';
+import * as actionPlanner from '../src/action-planner.js';
+import * as sessionMap from '../src/session-map.js';
+import * as dshHealth from '../src/dsh-health.js';
+import * as contextTelemetry from '../src/context-telemetry.js';
 import * as memoryCard from '../src/memory-card.js';
+import * as vectorMemory from '../src/vector-memory.js';
 import * as characterStore from '../src/character-persona.js';
 import * as biliCard from '../src/bili-card.js';
 import * as historyCatchup from '../src/history-catchup.js';
 import * as purposeEngine from '../src/purpose-engine.js';
+import * as sessionRollover from '../src/session-rollover.js';
+import * as wakeBatch from '../src/wake-batch.js';
+import * as wakeFilter from '../src/wake-filter.js';
 import * as conversationClosure from '../src/conversation-closure.js';
 import { fetchVideoInfo } from '../src/bili-api.js';
 import * as stateAcl from '../src/state-acl.mjs';
+import * as qqAt from '../src/qq-at.js';
+import * as modelOptions from '../src/model-options.js';
 import { createBiliMemory } from '../src/bili-memory.js';
+import { createOutbox } from '../src/outbox.js';
 import { isLoopbackBaseUrl } from '../src/dsh-port.js';
 import { unwrap, createTurnCollector } from '../src/dsh-client.js';
 
@@ -143,6 +165,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     },
     respond: async () => success({}),
     stopSessionWork: async (sessionId) => { calls.cancelled.push(sessionId); return { removed: 0 }; },
+    cancelTurn: async (sessionId) => { calls.cancelled.push({ cancelTurn: sessionId }); return { ok: true }; },
     callUnary: async (method, params) => { calls.cancelled.push({ method, params }); return success({ accepted: true }); },
   };
   class FakeBot {
@@ -196,6 +219,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     isConversationBusyV2, v2TurnStartAt, turnLeaseNoted, TURN_BUSY_LEASE_MS,
     settingFromDshNamespace, selfIdentityTextV2, buildWakeReminderPromptV2,
     getMode() { return currentMode; },
+    setSnowlumaHealth(patch = {}) { Object.assign(snowlumaHealth, patch); },
     setSelfIdentity(display, id) {
       selfDisplayName = String(display ?? '');
       selfUserId = String(id ?? '');
@@ -239,17 +263,31 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     discoverDshBaseUrl: async () => null,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...selfIdentity, ...slang, ...sticker,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...fishGuard, ...tokenGuard,
+    ...qqAt,
+    ...modelOptions,
+    ...dshModelFollow,
+    ...commandSpam,
+    createOutbox,
+    ...voiceDiagnostics,
+    ...allowlist,
+    ...callname,
+    ...personaIdentity,
+    ...dshHealth,
     synthesizeToFile,
     ...tokenBudget,
-    ...adminIdentity, ...roleCard, ...memoryCard, ...biliCard, ...characterStore, ...historyCatchup,
-    ...questionAnswers, ...ownerAudit,
+    ...adminIdentity, ...roleCard, ...personaLayers, ...wakePolicy, ...groupPolicy, ...actionPlanner, ...sessionMap, ...contextTelemetry, ...memoryCard, ...vectorMemory, ...biliCard, ...characterStore, ...historyCatchup,
+    ...questionAnswers, ...ownerAudit, ...turnGuard, ...gateEvents,
     ...purposeEngine,
     ...xhsLink,
     ...conversationClosure,
+    ...sessionRollover,
+    ...wakeBatch,
+    ...wakeFilter,
     // 角色系统在 fixture 里等价于「没有角色」：当前角色 null，记忆卡指向 temp/dsh/surfcore/memory。
     // 不能直接用真实 character-store 的 DSH_HOME（它在主进程 import 时已固定）。
     readCurrentCharacter: () => null,
     activePersonaFile: () => '',
+    readPersonaLayerText: () => '',
     activeBiliDir: () => path.join(temp, 'dsh', 'surfcore', 'bili'),
     activePlatformStateDir: (legacyDir) => legacyDir,
     activeMemoryPaths: () => {
@@ -296,6 +334,8 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
   vm.runInContext(`Object.assign(globalThis, (() => { ${modelViewSource}\nreturn { compactModelMessage, compactModelData, serializeModelData }; })());`, context);
   vm.runInContext(source + '\nglobalThis.auditReady = main();', context);
   const bridge = await context.auditReady;
+  // 夹具默认模拟“SnowLuma 已连接”；通道断开用例会显式 setSnowlumaHealth({connected:false})。
+  bridge.setSnowlumaHealth({ connected: true, lastSendOkAt: Date.now(), lastSendFailAt: 0 });
   bridge.setPresets(['standard', 'qq-chat', 'qq-chat-v2']);
   bridge.setReady(true);
   return { ...bridge, calls, temp, async close() {

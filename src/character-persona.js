@@ -88,6 +88,17 @@ function copyFile(src, dest) {
   return true;
 }
 
+/** 复制核心/日常/场景三层人格文件（不存在的层跳过）。 */
+function copyPersonaLayers(paths, fixtureRoot) {
+  copyFile(paths.persona, path.join(fixtureRoot, 'persona.md'));
+  copyFile(paths.personaFull, path.join(fixtureRoot, 'persona.full.md'));
+  copyFile(paths.personaDaily, path.join(fixtureRoot, 'persona.daily.md'));
+  copyFile(paths.personaTone, path.join(fixtureRoot, 'persona.tone.md'));
+  for (const [scene, file] of Object.entries(paths.personaScenes || {})) {
+    copyFile(file, path.join(fixtureRoot, 'persona.scenes', `${scene}.md`));
+  }
+}
+
 /** 大文件优先硬链接：同一卷上不复制 10GB；失败再复制。 */
 function linkOrCopy(src, dest) {
   if (!fs.existsSync(src)) return false;
@@ -125,6 +136,16 @@ export function characterPaths(id) {
     dir,
     manifest: path.join(dir, 'character.json'),
     persona: path.join(dir, 'persona.md'),
+    personaFull: path.join(dir, 'persona.full.md'),
+    personaDaily: path.join(dir, 'persona.daily.md'),
+    personaTone: path.join(dir, 'persona.tone.md'),
+    personaScenesDir: path.join(dir, 'persona.scenes'),
+    personaScenes: {
+      'qq-group': path.join(dir, 'persona.scenes', 'qq-group.md'),
+      'qq-private': path.join(dir, 'persona.scenes', 'qq-private.md'),
+      bili: path.join(dir, 'persona.scenes', 'bili.md'),
+      pet: path.join(dir, 'persona.scenes', 'pet.md'),
+    },
     memoryDir,
     memoryJson: path.join(memoryDir, 'memory-card.json'),
     memoryMd: path.join(memoryDir, 'memory-card.md'),
@@ -192,6 +213,45 @@ export function activePlatformStateDir(legacyDir) {
 export function activePersonaFile() {
   const cur = readCurrentCharacter();
   return cur ? characterPaths(cur.id).persona : '';
+}
+
+/** 读当前角色的一层人格文本；文件不存在返回空串。 */
+export function readPersonaLayerText(kind = 'core', scene = '') {
+  const layers = activePersonaLayers();
+  if (!layers) return '';
+  const file = kind === 'full'
+    ? (layers.full || layers.core)
+    : kind === 'daily'
+      ? layers.daily
+      : kind === 'scene'
+        ? (layers.scenes?.[scene] || '')
+        : kind === 'tone'
+          ? layers.tone
+          : kind === 'core'
+            ? layers.core
+            : (() => {
+              try {
+                console.warn(`[persona] 未知人格层 "${kind}"，回退核心；请检查调用方`);
+              } catch {}
+              return layers.core;
+            })();
+  try { return file ? fs.readFileSync(file, 'utf8') : ''; } catch { return ''; }
+}
+
+/** 当前角色的人格分层路径；没有角色系统时只返回核心（旧布局由调用方回退）。 */
+export function activePersonaLayers() {
+  const cur = readCurrentCharacter();
+  if (!cur) return null;
+  const p = characterPaths(cur.id);
+  return {
+    id: cur.id,
+    core: p.persona,
+    full: p.personaFull,
+    daily: p.personaDaily,
+    tone: p.personaTone,
+    scenesDir: p.personaScenesDir,
+    scenes: p.personaScenes,
+  };
 }
 
 export function readCurrentCharacter() {
@@ -355,6 +415,7 @@ export function createCharacter({ name, personaText, memoryCard, fullRecords, id
   ensureDir(paths.snapshotsDir);
   const persona = String(personaText ?? '').trim() || defaultPersona(cleanName);
   fs.writeFileSync(paths.persona, `${persona}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(paths.personaFull, `${persona}\n`, { encoding: 'utf8', mode: 0o600 });
   if (memoryCard && typeof memoryCard === 'object') {
     atomicWriteJson(paths.memoryJson, memoryCard);
   }
@@ -385,6 +446,7 @@ export function updateCharacter(id, { name, personaText, memoryCard, now = Date.
   if (!manifest) throw new Error(`角色不存在：${id}`);
   if (typeof personaText === 'string') {
     fs.writeFileSync(paths.persona, `${personaText.trim()}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(paths.personaFull, `${personaText.trim()}\n`, { encoding: 'utf8', mode: 0o600 });
   }
   if (memoryCard && typeof memoryCard === 'object') atomicWriteJson(paths.memoryJson, memoryCard);
   const next = {
@@ -469,7 +531,7 @@ export function snapshotCharacter(id, { slot, reason = 'manual', now = Date.now(
   removeDirSafe(tmp);
   ensureDir(tmp);
   atomicWriteJson(path.join(tmp, 'snapshot.json'), snapshotManifest(id, name, reason, now));
-  copyFile(paths.persona, path.join(tmp, 'persona.md'));
+  copyPersonaLayers(paths, tmp);
   copyFile(paths.manifest, path.join(tmp, 'character.json'));
   ensureDir(path.join(tmp, 'memory'));
   for (const file of MEMORY_FILES) copyFile(path.join(paths.memoryDir, file), path.join(tmp, 'memory', file));
@@ -563,6 +625,14 @@ export function restoreSnapshot(id, slot, { now = Date.now() } = {}) {
   }
   const before = snapshotCharacter(id, { slot: `pre-restore-${new Date(now).toISOString().replace(/[:.]/g, '-')}`, reason: 'before-restore', now });
   copyFile(path.join(source, 'persona.md'), paths.persona);
+  copyFile(path.join(source, 'persona.daily.md'), paths.personaDaily);
+  copyFile(path.join(source, 'persona.tone.md'), paths.personaTone);
+  try {
+    for (const entry of fs.readdirSync(path.join(source, 'persona.scenes'), { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+      copyFile(path.join(source, 'persona.scenes', entry.name), path.join(paths.personaScenesDir, entry.name));
+    }
+  } catch {}
   // 只回档衰减卡与其注入块；全量记忆是 append-only，连 stats 都不回退（避免把后来的记忆统计抹掉）。
   for (const file of ['memory-card.json', 'memory-card.md', 'memory-card-prompt-qq.md', 'memory-card-prompt-bili.md', 'memory-inbox.jsonl']) {
     copyFile(path.join(source, 'memory', file), path.join(paths.memoryDir, file));

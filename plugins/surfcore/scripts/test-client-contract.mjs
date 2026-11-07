@@ -138,7 +138,7 @@ assert.ok(source.includes('function PetTab'), '设置页缺少桌宠页');
 assert.ok(source.includes('专注模式（不主动打扰）'), '桌宠页/菜单缺少专注模式');
 assert.ok(source.includes('"/pet/focus"'), '设置页没有调用 /pet/focus');
 assert.ok(source.includes('启用桌宠对话'), '桌宠页缺少「启用桌宠对话」');
-assert.ok(source.includes('把桌宠对话写进记忆卡'), '桌宠页缺少「写进记忆卡」开关');
+assert.ok(source.includes('把桌宠对话写进记忆'), '桌宠页缺少「写进记忆」开关');
 assert.ok(source.includes('文本回复上限') && source.includes('语音回复上限'), '桌宠页缺少回复字数控');
 assert.ok(source.includes('思考强度'), '桌宠页缺少思考强度设置');
 const pluginIndexSource = fs.readFileSync(path.join(import.meta.dirname, '..', 'lib', 'index.js'), 'utf8');
@@ -156,25 +156,23 @@ for (const action of ['purpose-status', 'purpose-preview', 'purpose-run']) {
 
 // 平台启动开关（2026-10-24 用户要求：不是所有用户都想同时开 QQ / B站）：
 //   · QQ / B站 页各一个「是否启动」开关，写合体层 platforms.start.{qq,bili}；
-//   · 概览的启动卡只留三个动作：一键启动 / 启动QQ / 启动B站；
+//   · 概览启动卡整合成「一键启动 SurfCore / 一键停止（全部）」：
+//     多选 QQ（含 SnowLuma）/ B站 / 桌宠 / 语音；语音有本地/云端分支；
 //   · 人格卡不再在概览重复显示（统一到「角色」页，和角色包在一起）。
 assert.ok(source.includes('function PlatformStartCard'), '缺少平台启动开关卡片');
 assert.ok(source.includes('"platforms", "start", "qq"'), 'QQ 启动开关没有绑定 platforms.start.qq');
 assert.ok(source.includes('"platforms", "start", "bili"'), 'B站 启动开关没有绑定 platforms.start.bili');
 assert.ok(source.includes('h(PlatformStartCard'), 'QQ / B站 页没有渲染启动开关卡片');
-for (const label of ['一键启动', '启动QQ', '启动B站']) {
-  // 「一键启动」按钮文案后面会跟（含 SnowLuma），按前缀认即可。
-  const ok = label === '一键启动'
-    ? source.includes('一键启动')
-    : (source.includes(`>${label}<`) || source.includes(`"${label}"`));
-  assert.ok(ok, `概览启动卡缺少按钮：${label}`);
+for (const label of ['一键启动 SurfCore', '一键停止（全部）', '语音分支']) {
+  assert.ok(source.includes(label), `概览启动卡缺少：${label}`);
 }
-for (const action of ['start-qq', 'start-bili']) {
-  assert.ok(source.includes(`act("${action}")`), `设置页没有调用 ${action}`);
+for (const action of ['start-selected', 'stop-selected']) {
+  assert.ok(source.includes(`"${action}"`), `设置页没有调用 ${action}`);
   assert.ok(pluginIndexSource.includes(`action === '${action}'`), `插件代理缺少 ${action} 动作`);
 }
-assert.ok(!source.includes('启动与人格卡'), '概览不应再出现「启动与人格卡」旧标题');
-assert.ok(!source.includes('一键启动全部（含 SnowLuma）'), '旧的「一键启动全部」按钮应被替换成三个按钮');
+assert.ok(source.includes('voiceBranch'), '语音缺少本地/云端分支选择');
+assert.ok(source.includes('start-qq') || source.includes('start-selected'), '概览缺少启动入口');
+assert.ok(!source.includes('一键启动（含 SnowLuma）'), '旧的一键启动按钮应被整合');
 assert.ok(!source.includes('随 DSH 启动自动拉起 QQ 桥接'), '旧 bridge.autoStart 开关应迁到 QQ 页的「是否启动」');
 assert.ok(source.includes('去 QQ 页改启动开关') && source.includes('去 B站 页改启动开关'), '概览缺少去平台页改开关的入口');
 assert.ok(source.includes('人格卡在「角色」页维护'), '概览移除人格卡后缺少指路文案');
@@ -183,6 +181,11 @@ assert.ok(source.includes('人格卡在「角色」页维护'), '概览移除人
 assert.ok(source.includes('function AdvancedSettings'), '缺少统一的「高级设置」折叠组件');
 assert.ok(source.includes('function Section({ title, note, children, defaultOpen = false, collapsible = true })'), 'Section 必须支持 collapsible（高级设置里不再折叠套折叠）');
 assert.ok(source.includes('function PersonaEditor'), '人格卡编辑器没有抽成内嵌组件');
+assert.ok(source.includes('一页编辑') || source.includes('四层'), '人格卡编辑器缺少一页四层说明');
+assert.ok(source.includes('保存全部'), '人格卡编辑器缺少保存全部入口');
+assert.ok(source.includes('persona.daily.md') || source.includes('人格日常'), '人格卡编辑器缺少日常层');
+assert.ok(source.includes('QQ 群聊') && source.includes('QQ 私聊'), '人格卡编辑器缺少 QQ 群聊/私聊场景');
+assert.ok(source.includes('拆分不会写盘') || source.includes('不会自动覆盖'), '人格卡编辑器必须说明拆分不写盘/不自动覆盖');
 assert.ok(source.includes('h(PersonaEditor'), '「角色」页没有渲染人格卡编辑器');
 assert.ok(!source.includes('["persona", "人设"]'), '「人设」标签必须并入「角色」，不能留第二个入口');
 assert.ok(!source.includes('function PersonaTab'), '旧的 PersonaTab 必须删掉，避免两套人格卡入口');
@@ -361,7 +364,7 @@ assert.ok(source.includes('onChange: (list) => setQqToBili("includeGroups", list
 // ── 通知函数接线（2026-10-30 用户反馈：语音页保存后红字 "toast is not a function"）──
 // 根因：Settings 里 toast 是"浮层文案字符串"，真正的函数叫 notify；
 // VoiceTab 那一处只传了 { toast }，字符串被当函数调用 → 保存成功却显示失败。
-assert.ok(source.includes('h(VoiceTab, { toast: notify })'), 'VoiceTab 必须收到 notify 函数（不是字符串 toast）');
+assert.ok(source.includes('h(VoiceTab, { toast: notify, qq: normalizedQq, setQq: setQqPath, onSave: save, busy, onResource: () => setResourceOpen(true) })'), 'VoiceTab 必须收到 notify 函数和配置/保存接线');
 assert.ok(!/h\(VoiceTab, \{ toast \}\)/.test(source), 'VoiceTab 不能收裸 toast（字符串）');
 {
   // 通用：所有 Tab 的 props 里出现 toast 的，都必须是 toast: notify
@@ -370,14 +373,16 @@ assert.ok(!/h\(VoiceTab, \{ toast \}\)/.test(source), 'VoiceTab 不能收裸 toa
   assert.equal(bad.length, 0, `有 Tab 把字符串 toast 当函数传：${bad.map((m) => m[1]).join(', ')}`);
 }
 assert.ok(source.includes('const [toastText, setToastText]'), '浮层文案状态应叫 toastText（避免与 notify 混淆）');
-assert.ok(source.includes('if (tab === "voice") return h(VoiceTab, { toast: notify });'), '语音页接线固定为 toast: notify');
+assert.ok(source.includes('h(VoiceTab, {') && source.includes('onResource: () => setResourceOpen(true)'), '语音页接线固定为 notify + 配置/保存 + 网盘资源入口');
 
-// ── 语音页网盘离线包入口（2026-10-30 用户要求：网络不稳时可走网盘）──
-assert.ok(source.includes('https://pan.quark.cn/s/ec6cf2b123de?pwd=sxUZ'), '语音页必须包含网盘链接');
+// ── 语音页网盘离线包入口（2026-11-06：统一到顶部资源按钮）──
 assert.ok(source.includes('网络不稳定装不上？用网盘下载离线包（本地包 / 云端包都适用）'), '必须说明本地包/云端包都适用');
-assert.ok(source.includes('打开网盘下载（提取码 sxUZ）'), '必须有「打开网盘下载」按钮');
-assert.ok(source.includes('复制链接'), '必须有复制链接兜底');
-assert.ok(source.includes('api("/voice/packs/netdisk"'), '按钮必须走后端打开（Electron 会拦新窗口）');
+assert.ok(source.includes('获取网盘资源（语音、向量记忆模型）'), '语音页必须有统一的网盘资源按钮');
+assert.ok(source.includes('https://pan.quark.cn/s/2f49b5496874?pwd=jXqr'), '必须包含夸克网盘链接');
+assert.ok(source.includes('https://pan.xunlei.com/s/VP5iWnY5xJ1D8KpL-gFpAsj9A1?pwd=tqi7'), '必须包含迅雷网盘链接');
+assert.ok(source.includes('（待补链）'), '百度/UC 必须标待补链');
+assert.ok(!source.includes('打开网盘下载（提取码 sxUZ）'), '旧的「打开网盘下载」按钮应移除');
+assert.ok(!source.includes('api("/voice/packs/netdisk"'), '旧的 netdisk 打开逻辑应移除');
 
 // ── 桌宠安装：表单必须随请求提交（2026-10-30 用户反馈：填了也不生效）──
 assert.ok(/api\("\/pet\/install",[\s\S]{0,200}source: form\.source\.trim\(\)/.test(source), '桌宠安装请求必须带 source');
@@ -395,4 +400,84 @@ assert.ok(!/browseNative\("file",[^)]*filter:/.test(source), '不得把原始 fi
 
 
 
+// ── 更新后必须提示重启 DSH（2026-10-30 用户要求）──
+assert.ok(source.includes('restartHint'), '必须有重启提示状态');
+assert.ok(source.includes('更新已下载：重启 DSH 后生效'), '下载完成后要提示重启');
+assert.ok(source.includes('有可用更新：安装后需要重启 DSH'), '检查到更新后要提示安装需重启');
+assert.ok(source.includes('完全退出 DSH'), '提示要说明“完全退出”而不是刷新页面');
+assert.ok(/setRestartHint\(\{ staged: true/.test(source), '暂存成功后设置重启提示');
+assert.ok(source.includes('下载完成 ≠ 已更新'), '更新卡片要有常驻提示');
+
+// ── B站 登录核查 + 管理员 UID 核查 + 长 UID（2026-10-30 用户要求）──
+assert.ok(source.includes('B站 登录账号'), 'B站 页要有登录账号卡片');
+assert.ok(source.includes('核查登录'), '登录账号卡片要有「核查登录」');
+assert.ok(/api\("\/bili\/account\/verify"/.test(source), '核查登录要调后端');
+assert.ok(source.includes('✅ 登录成功'), '扫码成功后弹窗要显示成功账号');
+assert.ok(source.includes('核查 UID 与昵称'), '管理员卡片要有 UID/昵称核查');
+assert.ok(/api\("\/bili\/verify-user"/.test(source), 'UID 核查要调后端');
+assert.ok(source.includes('4~20 位数字'), 'UID 输入要提示位数范围');
+assert.ok(source.includes('用 B站 昵称填上'), '昵称不一致要能一键填上');
+
+
+
+// ── 断线告警不再“明明连着还弹”（2026-10-31）──
+assert.ok(source.includes('snowluma:send-channel-down'), '前端应识别断线告警的 dedupeKey');
+assert.ok(source.includes('const stale = events.filter'), '连着时应过滤旧断线告警');
+assert.ok(source.includes('body: { ids: stale.map'), '应自动确认旧断线告警');
+assert.ok(source.includes('gateOverviewRef'), '用 overview 判断当前连接状态');
+assert.ok(source.includes('if (!gateOverviewRef.current) return;'), '概览未就绪时不弹，避免误弹');
+
+
+
+// ── L3 弹窗要能看出是哪个工具/哪个会话（2026-10-31）──
+assert.ok(source.includes('event.evidence?.tool'), '安全提醒要显示工具名');
+assert.ok(source.includes('event.evidence?.fingerprint'), '安全提醒要显示错误摘要');
+assert.ok(source.includes('event.subject?.key'), '安全提醒要显示会话');
+
+// ── 更新下载进度：速度 + 百分比（2026-10-31 用户要求）──
+assert.ok(source.includes('st?.download'), '应用更新时要轮询下载进度');
+assert.ok(source.includes('下载中'), '进度条应显示“下载中”');
+assert.ok(source.includes('speedBps'), '进度条应显示网速');
+assert.ok(source.includes('dl.percent'), '进度条应显示百分比');
+
+// ── 更新弹窗不能每次打开设置页都自动弹（2026-10-31 用户反馈）──
+assert.ok(source.includes('surfcore.updatePromptSeen'), '要记住“这个版本已提醒过”');
+assert.ok(source.includes('if (seen === sig) return'), '同一批版本不再自动弹');
+assert.ok(source.includes('updatePromptSignature'), '按版本集合生成提醒签名');
+
+// ── SnowLuma 没启动时，不该弹“断线”L2（2026-10-31 用户反馈）──
+assert.ok(source.includes('neverStarted'), '未启动（everConnected=false）也要过滤旧断线告警');
+assert.ok(source.includes('sl.everConnected === false'), '按 everConnected 判断“从未启动”');
+
+// ── DSH 注册修复入口（2026-11-01）──
+assert.ok(source.includes("/dsh/repair"), "设置页要有修复 DSH 注册的入口");
+assert.ok(source.includes("修复 DSH 注册"), "按钮文案要能看懂");
+assert.ok(source.includes("canRepairDsh"), "L2 弹窗遇到 dsh-profile-mcp-missing 要给修复按钮");
+// ── 更新通道单选（2026-11-01）──
+assert.ok(source.includes("update-channel"), "检查更新下面要有 main/dev 单选");
+assert.ok(source.includes("main（正式版") && source.includes("dev（测试版"), "两个通道文案");
+assert.ok(source.includes("switchUpdateChannel"), "切通道要调 set-channel");
+// ── 保存按钮/提示（2026-11-02）──
+assert.ok(source.includes("保存并生效"), "主保存按钮必须明确“保存并生效”");
+assert.ok(source.includes("仅保存（不重启）"), "必须保留明确的“仅保存”次按钮");
+assert.ok(source.includes('className: "qbw-toast"'), "保存成功提示必须是固定 toast");
+assert.ok(source.includes("qbw-settings-foot"), "弹窗保存按钮必须在固定底栏");
+assert.ok(source.includes("onSaveReady"), "群管理保存要交给弹窗底栏");
+assert.ok(source.includes("保存管理员并重启桥接"), "管理员卡片要有局部保存按钮");
+// ── 模型与思考强度（2026-11-02）──
+assert.ok(source.includes("function ModelSettingsCard"), "设置页要有模型/思考强度卡");
+assert.ok(source.includes("dshModelSelect"), "模型必须是目录驱动的下拉框");
+assert.ok(source.includes("dshEffortSelect"), "思考强度必须是下拉框");
+assert.ok(!source.includes("low / medium / high / max"), "不能再提示后端不支持的 medium");
+assert.ok(source.includes("会同时修改 DSH 全局默认模型"), "模型切换必须提示全局副作用");
+// ── 网盘资源入口（2026-11-06）──
+assert.ok(source.includes("获取网盘资源（语音、向量记忆模型）"), "记忆页顶部要有网盘资源入口");
+for (const label of ["夸克网盘", "UC网盘", "迅雷网盘", "百度网盘"]) {
+  assert.ok(source.includes(label), `网盘弹窗要有 ${label}`);
+}
+assert.ok(source.includes('window.open(url, "_blank", "noopener")'), "网盘按钮必须用默认浏览器打开");
+assert.ok(source.includes("向量记忆使用说明（人话版）"), "向量记忆 tab 顶部要有使用说明弹窗");
+assert.ok(source.includes("为多个模型重建索引"), "使用说明必须讲清多模型重建入口");
+assert.ok(source.includes("（已有索引）"), "多模型选择必须标注已有索引");
+assert.ok(source.includes("（待补链）"), "百度/UC 必须标待补链");
 console.log('client contract tests OK');
