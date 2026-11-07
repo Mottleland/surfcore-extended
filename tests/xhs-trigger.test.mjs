@@ -220,3 +220,15 @@ test('待读链接超过 10 分钟不再注入', async () => {
     await h.close();
   }
 });
+
+// 静态护栏：bridge.js 用了 extractXhsUrls 就必须 import（合并上游时曾漏过一次，
+// 结果是所有群消息处理直接抛 ReferenceError，唤醒静默失败）。
+test('bridge.js 的 xhs 依赖都已 import', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/bridge.js', import.meta.url), 'utf8');
+  for (const name of ['extractXhsUrls']) {
+    if (!src.includes(`${name}(`)) continue;
+    const imported = new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'[^']*xhs-link\\.js'`).test(src);
+    assert.ok(imported, `bridge.js 使用了 ${name}，但没有从 xhs-link.js import`);
+  }
+});

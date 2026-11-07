@@ -105,6 +105,8 @@ import { createBiliDynamicsSync } from './bili-dynamics.js';
 import { createBiliShareScheduler } from './bili-share-scheduler.js';
 import { createBiliCardSender, normalizeCardMode } from './bili-card.js';
 import { fetchVideoInfo } from './bili-api.js';
+// 小红书链接识别（只读适配层用；上游没有这个模块，合并时被漏掉过一次 import）。
+import { extractXhsUrls } from './xhs-link.js';
 import {
   loadSlang,
   saveSlang,
