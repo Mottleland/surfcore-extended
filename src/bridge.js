@@ -16107,6 +16107,9 @@ async function main() {
   }
 
   function scheduleProactiveCheckV2(key) {
+    // 本分支约定：主动机会只对群生效（私聊不主动打扰；私聊的主动只走 purpose）。
+    // 上游 0.8.x 去掉了这道判断，会给私聊也排主动检查 —— 这里按我们的口径保留。
+    if (!String(key).startsWith('group:')) return;
     if (cfg.socialV2?.proactive?.enabled === false) return;
     // 机器模式不做主动搭话；峰时顺延（下一轮 setupSleepTimer 之后会重排）。
     if (!backgroundTasksAllowed()) return;
