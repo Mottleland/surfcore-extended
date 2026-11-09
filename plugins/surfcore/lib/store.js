@@ -36,6 +36,7 @@ const BIDI_DEFAULTS = {
     windows: [{ start: '20:00', end: '24:00', wakes: 1 }],
     skipChance: 0.3,
     maxVideos: 5,
+    deepRead: 3,
     maxWakesPerDay: 1,
     minGapMin: 20,
   },
@@ -533,6 +534,11 @@ export function normalizeBiliConfig(input) {
   );
   cfg.night.skipChance = finiteNumber(cfg.night.skipChance, 0.3, 0, 0.95);
   cfg.night.maxVideos = finiteNumber(cfg.night.maxVideos, 5, 1, 20, { integer: true });
+  // 深读条数：不能超过初筛条数（设置页有提示，这里做硬约束）
+  cfg.night.deepRead = Math.min(
+    cfg.night.maxVideos,
+    finiteNumber(cfg.night.deepRead, Math.min(3, cfg.night.maxVideos), 1, 20, { integer: true }),
+  );
   cfg.night.minGapMin = finiteNumber(cfg.night.minGapMin, 20, 0, 120, { integer: true });
   cfg.quota = isPlainObject(cfg.quota) ? cfg.quota : {};
   cfg.quota.shareDaily = finiteNumber(cfg.quota.shareDaily, 3, 0, 20, { integer: true });

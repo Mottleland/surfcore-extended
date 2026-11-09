@@ -1443,7 +1443,8 @@ F("sessionCwd", "会话工作目录", "留空用 surfcore 根目录", "text", { 
       ]},
       { group: "作息", note: "生物钟窗口", fields: [
         F("night.skipChance", "今晚不看的概率", "0.3 = 三成；轻醒只结束当前 slot，不结束全天", "number", { min: 0, max: 0.95, step: 0.01 }),
-        F("night.maxVideos", "单次初筛视频数", "", "number", { min: 1, max: 20 }),
+        F("night.maxVideos", "单次初筛视频数", "先全体过一遍简介/字幕（不抽帧），1~20；越大越吃 token", "number", { min: 1, max: 20 }),
+        F("night.deepRead", "其中深读几条", "初筛里挑几条完整看（含抽帧），默认 3；不能超过初筛数", "number", { min: 1, max: 20 }),
         F("night.maxWakesPerDay", "每天最多醒来", "0~12；C 模式：每窗至少 1 次，剩余按该时段评分分配", "number", { min: 0, max: 12 }),
         F("night.minGapMin", "两次苏醒最小间隔（分钟）", "默认 20；相邻窗口也按这个错开；太小会低质量空跑", "number", { min: 0, max: 120 }),
       ]},
