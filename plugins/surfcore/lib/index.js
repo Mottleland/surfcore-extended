@@ -2447,7 +2447,14 @@ ${body}`;
     }
 
     // 进程在、但 OneBot 没起 → 多半停在登录页：直接把 WebUI 打开让人扫码。
-    if (await portOpen(webui.port, 600, webui.host)) {
+    // 进程在、但 OneBot 没起 → 多半停在登录页：直接把 WebUI 打开让人扫码。
+  // 同时探 5099/5100：SnowLuma 端口被占时会自动换到 5100，只探配置端口会漏判，
+  // 结果"已有一个实例"时又拉起第二个，两个实例互相抢端口。
+  let webuiAlive = false;
+  for (const probePort of [...new Set([webui.port, 5099, 5100])]) {
+    if (await portOpen(probePort, 400, webui.host)) { webuiAlive = true; break; }
+  }
+  if (webuiAlive) {
       const opened = openWebui ? openLocalUrl(webui.url) : false;
       return {
         ok: true,
