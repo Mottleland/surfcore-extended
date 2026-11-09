@@ -49,8 +49,19 @@ export function formatClock(minutes) {
  * end <= start 视为跨午夜；start === end 视为非法（避免“22:00–22:00”到底是空还是全天）。
  */
 export function normalizeWindow(window) {
-  const start = parseClock(window?.start);
-  const end = parseClock(window?.end, { allow24: true });
+  // 已经归一化过的窗口（start/end 是分钟数）直接接受：
+  // whale-night.mjs 的 windowsOf() 会先转成 {start: 570, end: 1080}，
+  // 再交给 buildNightSchedule → normalizeNightWindows；只认字符串时会被判非法、
+  // 静默回落到默认 20:00–24:00（实测：配了 9:30–18:00，白天永远不醒）。
+  const asMinutes = (value, { allow24 = false } = {}) => {
+    const n = Number(value);
+    if (typeof value === 'number' && Number.isFinite(n) && n >= 0 && n <= (allow24 ? 1440 : 1439)) {
+      return Math.floor(n);
+    }
+    return parseClock(value, { allow24 });
+  };
+  const start = asMinutes(window?.start);
+  const end = asMinutes(window?.end, { allow24: true });
   if (start == null) return { ok: false, code: 'WINDOW_START_INVALID', error: `开始时间不合法：${window?.start ?? ''}` };
   if (end == null) return { ok: false, code: 'WINDOW_END_INVALID', error: `结束时间不合法：${window?.end ?? ''}` };
   if (end === start) return { ok: false, code: 'WINDOW_EMPTY', error: '开始时间和结束时间不能相同' };
