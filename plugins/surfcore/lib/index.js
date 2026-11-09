@@ -2473,10 +2473,13 @@ ${body}`;
     try {
       const cwd = path.dirname(launcher);
       const lower = launcher.toLowerCase();
-      // 2026-11-06：默认「隐藏 + 脱离 DSH 进程树」。想恢复旧行为（可见控制台、随 DSH 退出），
-      // 设置 snowluma.launchMode = "legacy" 即可（不写默认 detached）。
-      // 默认跟随「隐藏命令行黑框」开关；显式 launchMode 仍然优先。
-      const launchMode = String(cfg.launchMode ?? (hideConsoles ? 'detached' : 'legacy')).toLowerCase();
+      pluginLog?.(`[snowluma] 启动请求：${launcher}`);
+      // 默认「隐藏 + 脱离 DSH 进程树」。想恢复旧行为（可见控制台、随 DSH 退出），
+      // 设置 snowluma.launchMode = "legacy" 即可。
+      // 2026-11-09 真机事故：默认曾跟随 hideConsoles 开关，一键启动不传这个参数 → 走了
+      // legacy（子进程挂在 DSH 下），DSH 一重启 SnowLuma 就跟着死（日志里是 WS 1006），
+      // 表现就是"一键启动没拉起来"。现在默认一律 detached，legacy 只能显式开启。
+      const launchMode = String(cfg.launchMode ?? 'detached').toLowerCase();
       let launchedBy = 'legacy';
       if (launchMode !== 'legacy') {
         const detachedResult = spawnSnowLumaDetached({ launcher, cwd, env: nodePathEnv() });
@@ -3587,14 +3590,26 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
       const status = await bridgeStatus();
       const stale = bridgeStaleReason(status);
       const dshWebUrl = currentDshUrl();
+      // 每一步单独兜底：任何一步抛错都不能让后面的（尤其 SnowLuma）被静默跳过。
+      const step = async (label, fn) => {
+        try { return await fn(); } catch (error) {
+          pluginLog?.(`[start-all] ${label} 失败：${error?.message ?? error}`);
+          return { ok: false, error: `${label}失败：${error?.message ?? error}` };
+        }
+      };
       const bridge = starts.qq
-        ? (stale ? await restartBridge({ dshWebUrl }) : await startBridge({ dshWebUrl }))
+        ? await step('QQ 桥接', () => (stale ? restartBridge({ dshWebUrl }) : startBridge({ dshWebUrl })))
         : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过桥接' };
       const schedulerState = starts.bili
         ? startSchedulerNow()
         : { ...idleSchedulerStatus('disabled'), message: 'B站 启动开关关闭，已跳过生物钟' };
-      const snowluma = starts.qq ? await launchSnowLuma() : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过 SnowLuma' };
-      const xhs = starts.qq ? await launchXhsService() : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过小红书服务' };
+      const snowluma = starts.qq
+        ? await step('SnowLuma', () => launchSnowLuma())
+        : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过 SnowLuma' };
+      const xhs = starts.qq
+        ? await step('小红书', () => launchXhsService())
+        : { ok: true, skipped: true, message: 'QQ 启动开关关闭，已跳过小红书服务' };
+      pluginLog?.(`[start-all] qq=${starts.qq} bili=${starts.bili} bridge=${bridge?.ok ?? '?'} snowluma=${snowluma?.ok ?? '?'}${snowluma?.error ? `(${snowluma.error})` : ''} xhs=${xhs?.ok ?? '?'}`);
       const coreOk = (!starts.qq || bridge?.ok !== false) && (!starts.bili || schedulerState.running);
       const message = [
         bridge?.message,
@@ -3610,6 +3625,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ${writeOut('$
         bridge,
         scheduler: schedulerState,
         snowluma,
+        xhs,
         platformStart: starts,
       });
       if (starts.qq || starts.bili) void watchStartupCompletion(starts);
