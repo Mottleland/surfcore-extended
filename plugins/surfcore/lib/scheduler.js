@@ -309,6 +309,9 @@ function wakePrompt(st, tools = '') {
   const K = kindsNow(B)
   const SILENT = !interactEnabled(B)
   const bestSlot = `${String(K.best.slot).padStart(2, '0')}:00`
+  // 设置页「单次初筛视频数」= night.maxVideos（默认 20，硬上限 20）；深读默认 3 条，可用 night.deepRead 覆盖。
+  const wakeMaxVideos = Math.max(1, Math.min(20, Number(B.night?.maxVideos ?? 20) || 20))
+  const wakeDeepRead = Math.max(1, Math.min(wakeMaxVideos, Number(B.night?.deepRead ?? 3) || 3))
   const capText = (n) => (Number(n) > 0 ? n : '不限')
   const identity = identityContextLines()
   const biliDir = platformDir()
@@ -341,12 +344,13 @@ function wakePrompt(st, tools = '') {
     `2) 读两本日记（\`${path.join(biliDir, 'whale-diary.md')}\` + \`${path.join(biliDir, 'whale-diary-private.md')}\`）`,
     // 2026-10-20：feed 已默认多源（搜索+热门+排行+关注）+ 去播放量偏向 + 偏好命中权重 ✓
     // 2026-10-23：feed 改成按「口味权重」分名额 + 排除观看历史/最近推过的 + 搜索页轮换。
-    '3) `feed` 选题（≤5 条）→ 对这 5 条跑 `debrief --no-frames`',
+    // 2026-11-09：数量改由配置驱动（以前写死 ≤5 / 深读 2–3，设置页的 maxVideos 只进了计划、没进提示词）。
+    `3) \`feed --n ${wakeMaxVideos}\` 选题（${wakeMaxVideos} 条）→ 对这 ${wakeMaxVideos} 条跑 \`debrief --no-frames\``,
     '   （按设置页的「口味权重」分配条数、偏好之间轮转；看过的/最近推过的自动排除，**不看播放量** ✓）',
     '   3.2) 如果你发现自己总在看同一类：不要自己改配置文件 —— 让主人去设置页「B站 → 口味权重 / 一键抓取」调低那个词、调高别的。',
     '   3.5) ⭐ 如果 `feed` 没有新内容（全是看过的/候选不够）→ **不要硬重复深读、不要为了凑数**；',
     '        写一段日记或扫一眼消息就按“轻醒”收工，保住这一趟的质量 ✓',
-    '4) 挑 2–3 条深读（完整 `debrief`，含抽帧）',
+    `4) 挑 ${wakeDeepRead} 条深读（完整 \`debrief\`，含抽帧；剩下的用 --no-frames 那轮已经看过简介，不用重复）`,
     // 2026-10-20：收藏 ≠ 低配的分享 ✓ 它是「我想留着」（内向），和分享（外向）并列
     '4.5) 深读的那几条里，如果某条「我想留着」→ `fav <BV> --reason "…" --dry` → `--go`',
     '     判据（缺一条就别收 ✗）：① 三个月后还会想点开 ② 说得出为什么留（≥6 字）③ 同类已 ≥2 条要 --better',
